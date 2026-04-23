@@ -1,0 +1,28 @@
+# Build outputs
+/bin/
+/build/
+
+# CMake generated files
+CMakeUserPresets.json
+compile_commands.json
+
+# Editor and OS files
+.DS_Store
+.idea/
+.vscode/
+
+# Local environment and secrets
+.env
+.env.*
+*.pem
+*.key
+*.log
+
+# Local test outputs and private data artifacts
+output/
+output_*/
+data/
+datasets/
+*.pcd
+*.las
+*.laz
