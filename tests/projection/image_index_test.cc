@@ -54,6 +54,18 @@ int main() {
     std::cerr << "expected Build to fail for non-directory path\n";
     return 1;
   }
+  const auto empty_valid_dir = temp_dir / "no_valid_pngs";
+  std::filesystem::create_directories(empty_valid_dir, ec);
+  if (ec) {
+    std::cerr << "failed to create invalid image dir: " << ec.message() << "\n";
+    return 1;
+  }
+  std::ofstream(empty_valid_dir / "ignore.txt") << "x";
+  std::ofstream(empty_valid_dir / "not_a_timestamp.png") << "x";
+  if (segment_projection::projection::ImageIndex::Build(empty_valid_dir)) {
+    std::cerr << "expected Build to fail when no valid png timestamps were indexed\n";
+    return 1;
+  }
 
   return 0;
 }

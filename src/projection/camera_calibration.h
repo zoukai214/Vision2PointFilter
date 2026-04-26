@@ -141,6 +141,12 @@ inline bool LoadFrontWideCameraModel(
                        &loaded_model.image_height)) {
     return false;
   }
+  if (loaded_model.image_width <= 0 || loaded_model.image_height <= 0) {
+    LOG(ERROR) << "Invalid front-wide image size: "
+               << loaded_model.image_width << "x"
+               << loaded_model.image_height;
+    return false;
+  }
 
   *model = loaded_model;
   return true;

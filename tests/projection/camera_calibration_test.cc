@@ -131,5 +131,43 @@ int main() {
     return 1;
   }
 
+  if (!WriteTextFile(
+          camera_path,
+          R"json({
+  "camera-front-wide-undistort": {
+    "param": {
+      "cam_matrix": {
+        "data": [
+          [1344.4, 0.0, 1910.5],
+          [0.0, 1344.4, 1080.25],
+          [0.0, 0.0, 1.0]
+        ]
+      },
+      "width": 0,
+      "height": -1
+    }
+  },
+  "camera-front-wide-to-car-undistort": {
+    "param": {
+      "sensor_calib": {
+        "data": [
+          [0.0, -1.0, 0.0, 2.0],
+          [1.0, 0.0, 0.0, 0.5],
+          [0.0, 0.0, 1.0, 1.25],
+          [0.0, 0.0, 0.0, 1.0]
+        ]
+      }
+    }
+  }
+})json")) {
+    std::cerr << "failed to write invalid camera fixture\n";
+    return 1;
+  }
+  if (segment_projection::projection::LoadFrontWideCameraModel(
+          lidar_path, camera_path, &model)) {
+    std::cerr << "expected LoadFrontWideCameraModel to reject non-positive image size\n";
+    return 1;
+  }
+
   return 0;
 }

@@ -94,6 +94,11 @@ class ImageIndex {
                 }
                 return lhs.path < rhs.path;
               });
+    if (entries.empty()) {
+      LOG(ERROR) << "No valid PNG timestamps found in image directory: "
+                 << image_dir;
+      return nullptr;
+    }
 
     return std::unique_ptr<ImageIndex>(
         new ImageIndex(image_dir, std::move(entries)));
