@@ -7,3 +7,11 @@ deskew_clip_export:
 
   output:
     subdir: deskew_pcd
+
+  projection:
+    enabled: true
+    image_subdir: images_seg_mask2former/front_wide
+    output_subdir: projection_front_wide
+    max_time_diff_ms: 100.0
+    point_radius_px: 2
+    intensity_color_map: turbo
