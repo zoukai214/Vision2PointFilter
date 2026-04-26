@@ -1,6 +1,7 @@
 # Build outputs
 /bin/
 /build/
+/Testing/
 
 # CMake generated files
 CMakeUserPresets.json
