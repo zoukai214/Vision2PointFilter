@@ -103,12 +103,12 @@ inline bool LoadFrontWideCameraModel(
   if (!segment_projection::data_loader::GacClipRootLoader::LoadCalibMatrix(
           lidar_top_to_car_path,
           {"lidar-top-to-car", "param", "sensor_calib", "data"},
-          &loaded_model.T_lidar_car)) {
+          &loaded_model.T_car_lidar)) {
     return false;
   }
-  loaded_model.T_car_lidar =
+  loaded_model.T_lidar_car =
       segment_projection::data_loader::GacClipRootLoader::InvertRigidTransform(
-          loaded_model.T_lidar_car);
+          loaded_model.T_car_lidar);
 
   if (!segment_projection::data_loader::GacClipRootLoader::LoadCalibMatrix(
           camera_front_wide_to_car_path,

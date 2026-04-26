@@ -20,13 +20,42 @@ class ImageIndex {
  public:
   static std::unique_ptr<ImageIndex> Build(
       const std::filesystem::path& image_dir) {
-    if (!std::filesystem::exists(image_dir)) {
+    std::error_code ec;
+    const bool exists = std::filesystem::exists(image_dir, ec);
+    if (ec) {
+      LOG(ERROR) << "Failed to inspect image path " << image_dir
+                 << ": " << ec.message();
+      return nullptr;
+    }
+    if (!exists) {
       LOG(ERROR) << "Image directory does not exist: " << image_dir;
+      return nullptr;
+    }
+    if (!std::filesystem::is_directory(image_dir, ec)) {
+      if (ec) {
+        LOG(ERROR) << "Failed to inspect image directory " << image_dir
+                   << ": " << ec.message();
+      } else {
+        LOG(ERROR) << "Image path is not a directory: " << image_dir;
+      }
       return nullptr;
     }
 
     std::vector<ImageMatch> entries;
-    for (const auto& entry : std::filesystem::directory_iterator(image_dir)) {
+    std::filesystem::directory_iterator it(image_dir, ec);
+    std::filesystem::directory_iterator end;
+    if (ec) {
+      LOG(ERROR) << "Failed to iterate image directory " << image_dir
+                 << ": " << ec.message();
+      return nullptr;
+    }
+    for (; it != end; it.increment(ec)) {
+      if (ec) {
+        LOG(ERROR) << "Failed while iterating image directory " << image_dir
+                   << ": " << ec.message();
+        return nullptr;
+      }
+      const auto& entry = *it;
       if (!entry.is_regular_file() || entry.path().extension() != ".png") {
         continue;
       }
@@ -39,10 +68,18 @@ class ImageIndex {
       try {
         const int64_t timestamp_ns =
             static_cast<int64_t>(std::stoll(stem.substr(0, underscore_pos)));
+        std::filesystem::path absolute_path = entry.path();
+        const std::filesystem::path candidate =
+            std::filesystem::absolute(entry.path(), ec);
+        if (!ec) {
+          absolute_path = candidate;
+        } else {
+          ec.clear();
+        }
         entries.push_back(ImageMatch{
             timestamp_ns / 1000000,
             0,
-            std::filesystem::absolute(entry.path()),
+            std::move(absolute_path),
         });
       } catch (const std::exception&) {
         LOG(WARNING) << "Failed to parse timestamp from image filename: "
