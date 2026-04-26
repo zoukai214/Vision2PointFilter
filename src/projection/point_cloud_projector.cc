@@ -18,6 +18,15 @@ struct ProjectedPoint {
   int intensity = 0;
 };
 
+bool IsFinitePoint(const Eigen::Vector3d& point) {
+  return std::isfinite(point.x()) && std::isfinite(point.y()) &&
+         std::isfinite(point.z());
+}
+
+bool IsSupportedColorMap(const std::string& intensity_color_map) {
+  return intensity_color_map == "turbo";
+}
+
 cv::Mat PrepareOutputImage(const cv::Mat& input_image) {
   if (input_image.empty()) {
     return cv::Mat();
@@ -57,7 +66,7 @@ cv::Scalar PseudoColor(double normalized_intensity) {
 bool ProjectPoint(const Eigen::Vector3d& point_cam,
                   const FrontWideCameraModel& camera_model,
                   cv::Point* pixel) {
-  if (!pixel || point_cam.z() <= 0.0) {
+  if (!pixel || !IsFinitePoint(point_cam) || point_cam.z() <= 0.0) {
     return false;
   }
 
@@ -66,6 +75,9 @@ bool ProjectPoint(const Eigen::Vector3d& point_cam,
       camera_model.K(0, 0) * (point_cam.x() / z) + camera_model.K(0, 2);
   const double v =
       camera_model.K(1, 1) * (point_cam.y() / z) + camera_model.K(1, 2);
+  if (!std::isfinite(u) || !std::isfinite(v)) {
+    return false;
+  }
   if (u < 0.0 || u >= static_cast<double>(camera_model.image_width) ||
       v < 0.0 || v >= static_cast<double>(camera_model.image_height)) {
     return false;
@@ -84,6 +96,7 @@ bool RenderFrontWideProjection(
     const ProjectionRenderConfig& config, const cv::Mat& input_image,
     cv::Mat* output_image, int* valid_projected_count) {
   if (!output_image || !valid_projected_count || config.point_radius_px <= 0 ||
+      !IsSupportedColorMap(config.intensity_color_map) ||
       camera_model.image_width <= 0 || camera_model.image_height <= 0 ||
       input_image.cols != camera_model.image_width ||
       input_image.rows != camera_model.image_height) {
@@ -102,6 +115,11 @@ bool RenderFrontWideProjection(
   int max_intensity = std::numeric_limits<int>::lowest();
 
   for (const auto& point : cloud) {
+    if (!std::isfinite(point.x) || !std::isfinite(point.y) ||
+        !std::isfinite(point.z)) {
+      continue;
+    }
+
     const Eigen::Vector4d point_lidar(point.x, point.y, point.z, 1.0);
     const Eigen::Vector4d point_car = camera_model.T_car_lidar * point_lidar;
     const Eigen::Vector4d point_cam = camera_model.T_cam_car * point_car;

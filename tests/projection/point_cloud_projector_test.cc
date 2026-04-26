@@ -1,5 +1,6 @@
 #include "projection/point_cloud_projector.h"
 
+#include <limits>
 #include <iostream>
 
 #include <opencv2/core.hpp>
@@ -35,6 +36,10 @@ int main() {
 
   pcl::PointCloud<GacPcdPoint> cloud;
   cloud.push_back(MakePoint(0.0f, 0.0f, 2.0f, 20));
+  cloud.push_back(
+      MakePoint(std::numeric_limits<float>::quiet_NaN(), 0.0f, 2.0f, 25));
+  cloud.push_back(
+      MakePoint(0.0f, std::numeric_limits<float>::infinity(), 2.0f, 26));
   cloud.push_back(MakePoint(0.0f, 0.0f, -1.0f, 30));
   cloud.push_back(MakePoint(2.0f, 0.0f, 0.1f, 40));
 
@@ -64,6 +69,16 @@ int main() {
   cv::absdiff(output_image, input_image, diff);
   if (cv::countNonZero(diff.reshape(1)) == 0) {
     std::cerr << "expected output image to differ from input image\n";
+    return 1;
+  }
+
+  ProjectionRenderConfig invalid_config = config;
+  invalid_config.intensity_color_map = "not-a-real-color-map";
+  valid_count = -1;
+  if (segment_projection::projection::RenderFrontWideProjection(
+          cloud, camera_model, invalid_config, input_image, &output_image,
+          &valid_count)) {
+    std::cerr << "expected invalid intensity_color_map to be rejected\n";
     return 1;
   }
 
