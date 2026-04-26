@@ -31,7 +31,11 @@ class GacClipRootLoader {
   std::filesystem::path LidarRawTopDir() const;
 
   std::filesystem::path GnssToLidarTopEnuPath() const;
+  std::filesystem::path LidarTopToCarPath() const;
+  std::filesystem::path CameraFrontWideToCarPath() const;
   std::filesystem::path IePostTrajAscPath() const;
+  std::filesystem::path FrontWideImageDir(
+      const std::string& image_subdir) const;
 
   static Eigen::Matrix4d InvertRigidTransform(const Eigen::Matrix4d& T);
   static bool LoadCalibMatrix(const std::filesystem::path& calib_path,

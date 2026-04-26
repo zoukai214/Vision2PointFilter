@@ -1,5 +1,6 @@
 #include <filesystem>
 #include <limits>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -7,29 +8,53 @@
 #include <Eigen/Geometry>
 
 #include <glog/logging.h>
+#include <opencv2/imgcodecs.hpp>
 #include <pcl/io/pcd_io.h>
 #include <yaml-cpp/yaml.h>
 
 #include "data_loader/gac_clip_root_loader.h"
 #include "data_loader/gac_pcd_point.h"
 #include "pose_parse/inspvax_asc_parser.h"
+#include "projection/camera_calibration.h"
+#include "projection/front_wide_projection_types.h"
+#include "projection/image_index.h"
+#include "projection/point_cloud_projector.h"
 
 namespace {
 
 using ClipLoader = segment_projection::data_loader::GacClipRootLoader;
 using GacPcdPoint = segment_projection::data_loader::GacPcdPoint;
 using InspvaxSample = segment_projection::pose_parse::InspvaxSample;
+using FrontWideCameraModel =
+    segment_projection::projection::FrontWideCameraModel;
+using ImageIndex = segment_projection::projection::ImageIndex;
+using ProjectionRenderConfig =
+    segment_projection::projection::ProjectionRenderConfig;
 
 struct Config {
   int frame_stride = 1;
   double deskew_max_range_m = 100.0;
   double interp_max_gap_ms = 100.0;
   std::string output_subdir = "deskew_pcd";
+  bool projection_enabled = true;
+  std::string projection_image_subdir = "images_seg_mask2former/front_wide";
+  std::string projection_output_subdir = "projection_front_wide";
+  double projection_max_time_diff_ms = 100.0;
+  int projection_point_radius_px = 2;
+  std::string projection_intensity_color_map = "turbo";
 };
 
 struct InterpolatedPose {
   Eigen::Vector3d utm_m = Eigen::Vector3d::Zero();
   Eigen::Quaterniond orientation = Eigen::Quaterniond::Identity();
+};
+
+struct ProjectionContext {
+  FrontWideCameraModel camera_model;
+  std::unique_ptr<ImageIndex> image_index;
+  std::filesystem::path output_dir;
+  ProjectionRenderConfig render_config;
+  double max_time_diff_ms = 100.0;
 };
 
 std::string TimestampNameFromPcdPath(const std::filesystem::path& pcd_path,
@@ -68,6 +93,30 @@ bool LoadConfig(const std::filesystem::path& config_path, Config* cfg) {
       cfg->output_subdir = output["subdir"].as<std::string>();
     }
   }
+  if (const YAML::Node projection = node["projection"]) {
+    if (projection["enabled"]) {
+      cfg->projection_enabled = projection["enabled"].as<bool>();
+    }
+    if (projection["image_subdir"]) {
+      cfg->projection_image_subdir =
+          projection["image_subdir"].as<std::string>();
+    }
+    if (projection["output_subdir"]) {
+      cfg->projection_output_subdir =
+          projection["output_subdir"].as<std::string>();
+    }
+    if (projection["max_time_diff_ms"]) {
+      cfg->projection_max_time_diff_ms =
+          projection["max_time_diff_ms"].as<double>();
+    }
+    if (projection["point_radius_px"]) {
+      cfg->projection_point_radius_px = projection["point_radius_px"].as<int>();
+    }
+    if (projection["intensity_color_map"]) {
+      cfg->projection_intensity_color_map =
+          projection["intensity_color_map"].as<std::string>();
+    }
+  }
 
   if (cfg->frame_stride <= 0) {
     LOG(ERROR) << "frame_stride must be > 0";
@@ -76,6 +125,28 @@ bool LoadConfig(const std::filesystem::path& config_path, Config* cfg) {
   if (!(cfg->interp_max_gap_ms > 0.0)) {
     LOG(ERROR) << "deskew.interp_max_gap_ms must be > 0";
     return false;
+  }
+  if (cfg->projection_enabled) {
+    if (cfg->projection_image_subdir.empty()) {
+      LOG(ERROR) << "projection.image_subdir must not be empty when enabled";
+      return false;
+    }
+    if (cfg->projection_output_subdir.empty()) {
+      LOG(ERROR) << "projection.output_subdir must not be empty when enabled";
+      return false;
+    }
+    if (cfg->projection_max_time_diff_ms < 0.0) {
+      LOG(ERROR) << "projection.max_time_diff_ms must be >= 0";
+      return false;
+    }
+    if (cfg->projection_point_radius_px <= 0) {
+      LOG(ERROR) << "projection.point_radius_px must be > 0";
+      return false;
+    }
+    if (cfg->projection_intensity_color_map.empty()) {
+      LOG(ERROR) << "projection.intensity_color_map must not be empty";
+      return false;
+    }
   }
   return true;
 }
@@ -196,6 +267,42 @@ int main(int argc, char** argv) {
     return EXIT_FAILURE;
   }
 
+  std::unique_ptr<ProjectionContext> projection;
+  if (cfg.projection_enabled) {
+    projection = std::make_unique<ProjectionContext>();
+    if (!segment_projection::projection::LoadFrontWideCameraModel(
+            clip.LidarTopToCarPath(), clip.CameraFrontWideToCarPath(),
+            &projection->camera_model)) {
+      LOG(ERROR) << "Failed to load front-wide camera model";
+      return EXIT_FAILURE;
+    }
+
+    projection->image_index =
+        ImageIndex::Build(clip.FrontWideImageDir(cfg.projection_image_subdir));
+    if (!projection->image_index) {
+      LOG(ERROR) << "Failed to build front-wide image index";
+      return EXIT_FAILURE;
+    }
+
+    projection->output_dir = clip.output_dir() / cfg.projection_output_subdir;
+    std::filesystem::create_directories(projection->output_dir, ec);
+    if (ec) {
+      LOG(ERROR) << "Failed to create projection output directory: "
+                 << projection->output_dir << ", error=" << ec.message();
+      return EXIT_FAILURE;
+    }
+
+    projection->render_config.point_radius_px = cfg.projection_point_radius_px;
+    projection->render_config.intensity_color_map =
+        cfg.projection_intensity_color_map;
+    projection->max_time_diff_ms = cfg.projection_max_time_diff_ms;
+
+    LOG(INFO) << "Projection enabled. image_dir="
+              << projection->image_index->image_dir()
+              << ", image_count=" << projection->image_index->entries().size()
+              << ", output_dir=" << projection->output_dir;
+  }
+
   segment_projection::pose_parse::InspvaxAscParser parser;
   segment_projection::pose_parse::InspvaxAscParser::Summary summary;
   if (!parser.ParseFile(asc_path.string(), summary)) {
@@ -305,6 +412,55 @@ int main(int argc, char** argv) {
       LOG(ERROR) << "Failed to save deskewed PCD: " << output_path;
       ++skipped_frames;
       continue;
+    }
+
+    if (projection) {
+      const auto image_match =
+          projection->image_index->FindNearestOrNull(timestamp_ms);
+      if (!image_match) {
+        LOG(ERROR) << "No matching front-wide image for frame: " << pcd_path;
+        return EXIT_FAILURE;
+      }
+      if (static_cast<double>(image_match->delta_ms) >
+          projection->max_time_diff_ms) {
+        LOG(ERROR) << "Nearest front-wide image exceeds max delta for frame: "
+                   << pcd_path << ", image=" << image_match->path
+                   << ", delta_ms=" << image_match->delta_ms
+                   << ", max_time_diff_ms=" << projection->max_time_diff_ms;
+        return EXIT_FAILURE;
+      }
+
+      const cv::Mat input_image =
+          cv::imread(image_match->path.string(), cv::IMREAD_UNCHANGED);
+      if (input_image.empty()) {
+        LOG(ERROR) << "Failed to load projection image: " << image_match->path;
+        return EXIT_FAILURE;
+      }
+
+      cv::Mat projected_image;
+      int valid_projected_count = 0;
+      if (!segment_projection::projection::RenderFrontWideProjection(
+              deskewed_cloud, projection->camera_model,
+              projection->render_config, input_image, &projected_image,
+              &valid_projected_count)) {
+        LOG(ERROR) << "Failed to render front-wide projection for frame: "
+                   << pcd_path;
+        return EXIT_FAILURE;
+      }
+
+      const std::filesystem::path projection_output_path =
+          projection->output_dir /
+          (TimestampNameFromPcdPath(pcd_path, timestamp_ms) + ".png");
+      if (!cv::imwrite(projection_output_path.string(), projected_image)) {
+        LOG(ERROR) << "Failed to save projection PNG: "
+                   << projection_output_path;
+        return EXIT_FAILURE;
+      }
+
+      LOG(INFO) << "Projected " << pcd_path.filename() << " -> "
+                << projection_output_path
+                << ", projected_points=" << valid_projected_count
+                << ", image_delta_ms=" << image_match->delta_ms;
     }
 
     LOG(INFO) << "Deskewed " << pcd_path.filename() << " -> " << output_path

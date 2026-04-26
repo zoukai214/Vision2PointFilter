@@ -38,8 +38,25 @@ std::filesystem::path GacClipRootLoader::GnssToLidarTopEnuPath() const {
   return CalibExtractDir() / "calib_gnss_to_lidar_top_ENU.json";
 }
 
+std::filesystem::path GacClipRootLoader::LidarTopToCarPath() const {
+  return CalibExtractDir() / "calib_lidar_top_to_car.json";
+}
+
+std::filesystem::path GacClipRootLoader::CameraFrontWideToCarPath() const {
+  return CalibExtractDir() / "calib_camera_front_wide_to_car.json";
+}
+
 std::filesystem::path GacClipRootLoader::IePostTrajAscPath() const {
   return EgoRawDir() / "IE_post_traj.asc";
+}
+
+std::filesystem::path GacClipRootLoader::FrontWideImageDir(
+    const std::string& image_subdir) const {
+  const std::filesystem::path subdir_path(image_subdir);
+  if (subdir_path.is_relative()) {
+    return std::filesystem::absolute(clip_root_ / subdir_path);
+  }
+  return std::filesystem::absolute(subdir_path);
 }
 
 Eigen::Matrix4d GacClipRootLoader::InvertRigidTransform(
