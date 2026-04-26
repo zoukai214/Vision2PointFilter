@@ -424,7 +424,9 @@ int main(int argc, char** argv) {
       if (static_cast<double>(image_match->delta_ms) >
           projection->max_time_diff_ms) {
         LOG(ERROR) << "Nearest front-wide image exceeds max delta for frame: "
-                   << pcd_path << ", image=" << image_match->path
+                   << pcd_path << ", pcd_ts_ms=" << timestamp_ms
+                   << ", image=" << image_match->path
+                   << ", image_ts_ms=" << image_match->timestamp_ms
                    << ", delta_ms=" << image_match->delta_ms
                    << ", max_time_diff_ms=" << projection->max_time_diff_ms;
         return EXIT_FAILURE;
