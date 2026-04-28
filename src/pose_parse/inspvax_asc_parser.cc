@@ -20,6 +20,11 @@
 namespace segment_projection::pose_parse {
 namespace {
 
+constexpr double kWgs84SemiMajorAxisM = 6378137.0;
+constexpr double kWgs84Flattening = 1.0 / 298.257223563;
+constexpr double kWgs84EccentricitySq =
+    kWgs84Flattening * (2.0 - kWgs84Flattening);
+
 std::string Trim(const std::string& value) {
   const std::string whitespace = " \t\r\n";
   const auto begin = value.find_first_not_of(whitespace);
@@ -28,6 +33,43 @@ std::string Trim(const std::string& value) {
   }
   const auto end = value.find_last_not_of(whitespace);
   return value.substr(begin, end - begin + 1);
+}
+
+Eigen::Vector3d LlhDegToEcefM(double lat_deg, double lon_deg, double alt_m) {
+  const double lat_rad = segment_projection::common::math::Degree2Radian(lat_deg);
+  const double lon_rad = segment_projection::common::math::Degree2Radian(lon_deg);
+  const double sin_lat = std::sin(lat_rad);
+  const double cos_lat = std::cos(lat_rad);
+  const double sin_lon = std::sin(lon_rad);
+  const double cos_lon = std::cos(lon_rad);
+  const double prime_vertical_radius =
+      kWgs84SemiMajorAxisM /
+      std::sqrt(1.0 - kWgs84EccentricitySq * sin_lat * sin_lat);
+  return Eigen::Vector3d(
+      (prime_vertical_radius + alt_m) * cos_lat * cos_lon,
+      (prime_vertical_radius + alt_m) * cos_lat * sin_lon,
+      (prime_vertical_radius * (1.0 - kWgs84EccentricitySq) + alt_m) * sin_lat);
+}
+
+Eigen::Vector3d EcefDeltaToEnu(const Eigen::Vector3d& delta_ecef_m,
+                               double origin_lat_deg,
+                               double origin_lon_deg) {
+  const double lat_rad =
+      segment_projection::common::math::Degree2Radian(origin_lat_deg);
+  const double lon_rad =
+      segment_projection::common::math::Degree2Radian(origin_lon_deg);
+  const double sin_lat = std::sin(lat_rad);
+  const double cos_lat = std::cos(lat_rad);
+  const double sin_lon = std::sin(lon_rad);
+  const double cos_lon = std::cos(lon_rad);
+  const double east = -sin_lon * delta_ecef_m.x() + cos_lon * delta_ecef_m.y();
+  const double north = -sin_lat * cos_lon * delta_ecef_m.x() -
+                       sin_lat * sin_lon * delta_ecef_m.y() +
+                       cos_lat * delta_ecef_m.z();
+  const double up = cos_lat * cos_lon * delta_ecef_m.x() +
+                    cos_lat * sin_lon * delta_ecef_m.y() +
+                    sin_lat * delta_ecef_m.z();
+  return Eigen::Vector3d(east, north, up);
 }
 
 struct OgrCtDeleter {
@@ -206,6 +248,25 @@ bool InspvaxAscParser::ToUtmPose(double lat_deg, double lon_deg, double alt_m,
   result->zone = zone;
   result->northp = true;
   result->convergence_rad = ConvergenceRad(lat_deg, lon_deg);
+  return true;
+}
+
+bool InspvaxAscParser::ToLocalEnu(
+    double lat_deg, double lon_deg, double alt_m,
+    const Eigen::Vector3d& origin_llh_deg_m, Eigen::Vector3d* enu_m,
+    std::string* error) const {
+  if (!enu_m) {
+    if (error) {
+      *error = "ENU output is null";
+    }
+    return false;
+  }
+  const Eigen::Vector3d ecef_m = LlhDegToEcefM(lat_deg, lon_deg, alt_m);
+  const Eigen::Vector3d origin_ecef_m =
+      LlhDegToEcefM(origin_llh_deg_m.x(), origin_llh_deg_m.y(),
+                    origin_llh_deg_m.z());
+  *enu_m = EcefDeltaToEnu(ecef_m - origin_ecef_m, origin_llh_deg_m.x(),
+                          origin_llh_deg_m.y());
   return true;
 }
 

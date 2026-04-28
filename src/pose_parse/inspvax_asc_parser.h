@@ -38,6 +38,9 @@ class InspvaxAscParser {
   const Options& options() const { return options_; }
 
   bool ParseFile(const std::string& asc_path, Summary& summary);
+  bool ToLocalEnu(double lat_deg, double lon_deg, double alt_m,
+                  const Eigen::Vector3d& origin_llh_deg_m,
+                  Eigen::Vector3d* enu_m, std::string* error) const;
   const std::vector<InspvaxSample>& Samples() const { return samples_; }
 
  private:

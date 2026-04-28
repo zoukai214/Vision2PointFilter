@@ -119,6 +119,7 @@ endif()
 
 add_executable(deskew_clip_export
   src/application/deskew_clip_export.cc
+  src/application/deskew_global_frame.cc
 )
 target_link_libraries(deskew_clip_export
   PUBLIC
@@ -171,4 +172,20 @@ if(EXISTS "${PROJECT_SOURCE_DIR}/tests/projection/point_cloud_projector_test.cc"
       glog::glog
   )
   add_test(NAME point_cloud_projector_test COMMAND point_cloud_projector_test)
+endif()
+
+if(EXISTS "${PROJECT_SOURCE_DIR}/tests/application/deskew_global_frame_test.cc")
+  add_executable(deskew_global_frame_test
+    tests/application/deskew_global_frame_test.cc
+    src/application/deskew_global_frame.cc
+  )
+  target_link_libraries(deskew_global_frame_test
+    PRIVATE
+      segment_projection_common
+      segment_projection_data_loader
+      segment_projection_pose_parse
+      yaml-cpp
+      glog::glog
+  )
+  add_test(NAME deskew_global_frame_test COMMAND deskew_global_frame_test)
 endif()

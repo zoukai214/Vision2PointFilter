@@ -41,6 +41,8 @@ class GacClipRootLoader {
   static bool LoadCalibMatrix(const std::filesystem::path& calib_path,
                               const std::vector<std::string>& keys,
                               Eigen::Matrix4d* T_out);
+  static bool LoadGnssToLidarTop(const std::filesystem::path& calib_path,
+                                 Eigen::Matrix4d* T_gnss_lidar);
   static bool LoadGnssToLidarTopEnu(const std::filesystem::path& calib_path,
                                     Eigen::Matrix4d* T_gnss_lidar);
   static std::map<int64_t, std::filesystem::path> GetPcdFilesWithTimestampsMs(

@@ -125,7 +125,7 @@ bool GacClipRootLoader::LoadCalibMatrix(const std::filesystem::path& calib_path,
   return true;
 }
 
-bool GacClipRootLoader::LoadGnssToLidarTopEnu(
+bool GacClipRootLoader::LoadGnssToLidarTop(
     const std::filesystem::path& calib_path, Eigen::Matrix4d* T_gnss_lidar) {
   Eigen::Matrix4d T = Eigen::Matrix4d::Identity();
   if (!LoadCalibMatrix(calib_path,
@@ -135,6 +135,11 @@ bool GacClipRootLoader::LoadGnssToLidarTopEnu(
   }
   *T_gnss_lidar = InvertRigidTransform(T);
   return true;
+}
+
+bool GacClipRootLoader::LoadGnssToLidarTopEnu(
+    const std::filesystem::path& calib_path, Eigen::Matrix4d* T_gnss_lidar) {
+  return LoadGnssToLidarTop(calib_path, T_gnss_lidar);
 }
 
 std::map<int64_t, std::filesystem::path>

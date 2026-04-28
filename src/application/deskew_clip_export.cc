@@ -12,6 +12,7 @@
 #include <pcl/io/pcd_io.h>
 #include <yaml-cpp/yaml.h>
 
+#include "application/deskew_global_frame.h"
 #include "data_loader/gac_clip_root_loader.h"
 #include "data_loader/gac_pcd_point.h"
 #include "pose_parse/inspvax_asc_parser.h"
@@ -32,6 +33,8 @@ using ProjectionRenderConfig =
     segment_projection::projection::ProjectionRenderConfig;
 
 struct Config {
+  segment_projection::application::GlobalFrame global_frame =
+      segment_projection::application::GlobalFrame::kEnu;
   int frame_stride = 1;
   double deskew_max_range_m = 100.0;
   double interp_max_gap_ms = 100.0;
@@ -79,6 +82,17 @@ bool LoadConfig(const std::filesystem::path& config_path, Config* cfg) {
 
   if (node["frame_stride"]) {
     cfg->frame_stride = node["frame_stride"].as<int>();
+  }
+  if (const YAML::Node pose = node["pose"]) {
+    if (pose["coord_frame"]) {
+      std::string error;
+      if (!segment_projection::application::ParseGlobalFrameString(
+              pose["coord_frame"].as<std::string>(), &cfg->global_frame,
+              &error)) {
+        LOG(ERROR) << error;
+        return false;
+      }
+    }
   }
   if (const YAML::Node deskew = node["deskew"]) {
     if (deskew["max_range_m"]) {
@@ -255,7 +269,6 @@ int main(int argc, char** argv) {
   clip.SetOutputDir(output_dir);
 
   const std::filesystem::path asc_path = clip.IePostTrajAscPath();
-  const std::filesystem::path calib_path = clip.GnssToLidarTopEnuPath();
   const std::filesystem::path lidar_dir = clip.LidarRawTopDir();
   const std::filesystem::path output_pcd_dir = clip.output_dir() / cfg.output_subdir;
 
@@ -304,17 +317,30 @@ int main(int argc, char** argv) {
   }
 
   segment_projection::pose_parse::InspvaxAscParser parser;
+  segment_projection::pose_parse::InspvaxAscParser::Options parser_options;
+  parser_options.apply_utm_convergence =
+      segment_projection::application::ShouldApplyUtmConvergence(
+          cfg.global_frame);
+  parser.SetOptions(parser_options);
   segment_projection::pose_parse::InspvaxAscParser::Summary summary;
   if (!parser.ParseFile(asc_path.string(), summary)) {
     LOG(ERROR) << "Failed to parse ASC: " << asc_path;
     return EXIT_FAILURE;
   }
-  const auto& samples = parser.Samples();
+  std::vector<InspvaxSample> samples = parser.Samples();
   LOG(INFO) << "Parsed INSPVAX samples: " << samples.size()
-            << ", skipped=" << summary.skipped;
+            << ", skipped=" << summary.skipped
+            << ", pose.coord_frame="
+            << segment_projection::application::GlobalFrameName(
+                   cfg.global_frame)
+            << ", apply_utm_convergence="
+            << (parser.options().apply_utm_convergence ? "true" : "false");
 
   Eigen::Matrix4d T_gnss_lidar = Eigen::Matrix4d::Identity();
-  if (!ClipLoader::LoadGnssToLidarTopEnu(calib_path, &T_gnss_lidar)) {
+  const std::filesystem::path calib_path =
+      segment_projection::application::SelectGnssToLidarCalibrationPath(
+          clip, cfg.global_frame);
+  if (!ClipLoader::LoadGnssToLidarTop(calib_path, &T_gnss_lidar)) {
     LOG(ERROR) << "Failed to load GNSS->LiDAR extrinsic: " << calib_path;
     return EXIT_FAILURE;
   }
@@ -322,6 +348,16 @@ int main(int argc, char** argv) {
   const auto pcd_files = ClipLoader::GetPcdFilesWithTimestampsMs(lidar_dir);
   if (pcd_files.empty()) {
     LOG(ERROR) << "No PCD files found in " << lidar_dir;
+    return EXIT_FAILURE;
+  }
+  std::string rewrite_error;
+  if (!segment_projection::application::RewriteSamplesForGlobalFrame(
+          parser, cfg.global_frame, pcd_files.begin()->first - 200, &samples,
+          &rewrite_error)) {
+    LOG(ERROR) << "Failed to rewrite samples for global frame "
+               << segment_projection::application::GlobalFrameName(
+                      cfg.global_frame)
+               << ": " << rewrite_error;
     return EXIT_FAILURE;
   }
 
