@@ -51,7 +51,7 @@ int main() {
       !WriteTextFile(
           camera_path,
           R"json({
-  "camera-front-wide-undistort": {
+  "camera-front-wide": {
     "param": {
       "cam_matrix": {
         "data": [
@@ -61,10 +61,13 @@ int main() {
         ]
       },
       "width": 3840,
-      "height": 2160
+      "height": 2160,
+      "distortion": {
+        "data": [0.1, -0.2, 0.0, 0.0, 0.0]
+      }
     }
   },
-  "camera-front-wide-to-car-undistort": {
+  "camera-front-wide-to-car": {
     "param": {
       "sensor_calib": {
         "data": [
@@ -72,6 +75,17 @@ int main() {
           [1.0, 0.0, 0.0, 0.5],
           [0.0, 0.0, 1.0, 1.25],
           [0.0, 0.0, 0.0, 1.0]
+        ]
+      }
+    }
+  },
+  "camera-front-wide-undistort": {
+    "param": {
+      "cam_matrix": {
+        "data": [
+          [1.0, 0.0, 1.0],
+          [0.0, 1.0, 1.0],
+          [0.0, 0.0, 1.0]
         ]
       }
     }
@@ -94,7 +108,7 @@ int main() {
     return 1;
   }
   if (std::abs(model.K(0, 0) - 1344.4) > 1e-6) {
-    std::cerr << "unexpected undistorted fx: " << model.K(0, 0) << "\n";
+    std::cerr << "unexpected fx: " << model.K(0, 0) << "\n";
     return 1;
   }
   Eigen::Matrix4d expected_T_car_lidar = Eigen::Matrix4d::Identity();
@@ -134,7 +148,7 @@ int main() {
   if (!WriteTextFile(
           camera_path,
           R"json({
-  "camera-front-wide-undistort": {
+  "camera-front-wide": {
     "param": {
       "cam_matrix": {
         "data": [
@@ -147,7 +161,7 @@ int main() {
       "height": -1
     }
   },
-  "camera-front-wide-to-car-undistort": {
+  "camera-front-wide-to-car": {
     "param": {
       "sensor_calib": {
         "data": [

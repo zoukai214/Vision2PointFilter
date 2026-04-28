@@ -112,8 +112,7 @@ inline bool LoadFrontWideCameraModel(
 
   if (!segment_projection::data_loader::GacClipRootLoader::LoadCalibMatrix(
           camera_front_wide_to_car_path,
-          {"camera-front-wide-to-car-undistort", "param", "sensor_calib",
-           "data"},
+          {"camera-front-wide-to-car", "param", "sensor_calib", "data"},
           &loaded_model.T_car_cam)) {
     return false;
   }
@@ -126,18 +125,18 @@ inline bool LoadFrontWideCameraModel(
     return false;
   }
   if (!detail::LoadMatrix3d(root,
-                            {"camera-front-wide-undistort", "param",
-                             "cam_matrix", "data"},
+                            {"camera-front-wide", "param", "cam_matrix",
+                             "data"},
                             &loaded_model.K)) {
     return false;
   }
   if (!detail::LoadInt(root,
-                       {"camera-front-wide-undistort", "param", "width"},
+                       {"camera-front-wide", "param", "width"},
                        &loaded_model.image_width)) {
     return false;
   }
   if (!detail::LoadInt(root,
-                       {"camera-front-wide-undistort", "param", "height"},
+                       {"camera-front-wide", "param", "height"},
                        &loaded_model.image_height)) {
     return false;
   }
