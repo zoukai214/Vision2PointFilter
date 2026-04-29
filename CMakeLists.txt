@@ -73,6 +73,8 @@ set(segment_projection_projection_sources
   src/projection/camera_calibration.cc
   src/projection/image_index.cc
   src/projection/point_cloud_projector.cc
+  src/projection/semantic_label_mapping.cc
+  src/projection/semantic_point_labeler.cc
 )
 set(segment_projection_projection_all_sources_present TRUE)
 foreach(segment_projection_projection_source IN LISTS segment_projection_projection_sources)
@@ -172,6 +174,32 @@ if(EXISTS "${PROJECT_SOURCE_DIR}/tests/projection/point_cloud_projector_test.cc"
       glog::glog
   )
   add_test(NAME point_cloud_projector_test COMMAND point_cloud_projector_test)
+endif()
+
+if(EXISTS "${PROJECT_SOURCE_DIR}/tests/projection/semantic_label_mapping_test.cc")
+  add_executable(semantic_label_mapping_test
+    tests/projection/semantic_label_mapping_test.cc
+  )
+  target_link_libraries(semantic_label_mapping_test
+    PRIVATE
+      segment_projection_projection
+      jsoncpp_lib
+      glog::glog
+  )
+  add_test(NAME semantic_label_mapping_test COMMAND semantic_label_mapping_test)
+endif()
+
+if(EXISTS "${PROJECT_SOURCE_DIR}/tests/projection/semantic_point_labeler_test.cc")
+  add_executable(semantic_point_labeler_test
+    tests/projection/semantic_point_labeler_test.cc
+  )
+  target_link_libraries(semantic_point_labeler_test
+    PRIVATE
+      segment_projection_projection
+      pcl_common
+      glog::glog
+  )
+  add_test(NAME semantic_point_labeler_test COMMAND semantic_point_labeler_test)
 endif()
 
 if(EXISTS "${PROJECT_SOURCE_DIR}/tests/application/deskew_global_frame_test.cc")
