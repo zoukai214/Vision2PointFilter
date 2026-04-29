@@ -108,9 +108,15 @@ int main() {
     ofs << "    point_radius_px: 2\n";
     ofs << "    intensity_color_map: turbo\n";
   }
-  if (segment_projection::application::LoadDeskewClipExportConfig(
+  if (!segment_projection::application::LoadDeskewClipExportConfig(
           non_front_wide_path, &cfg, &error)) {
-    std::cerr << "first camera must be front_wide until generic calibration exists\n";
+    std::cerr << "non-front_wide first camera should be accepted: " << error
+              << "\n";
+    return 1;
+  }
+  if (cfg.projection.camera_names.size() != 2 ||
+      cfg.projection.camera_names.front() != "back") {
+    std::cerr << "non-front_wide order should be preserved\n";
     return 1;
   }
 
@@ -130,6 +136,26 @@ int main() {
   if (segment_projection::application::LoadDeskewClipExportConfig(
           duplicate_path, &cfg, &error)) {
     std::cerr << "duplicate camera_names should fail\n";
+    return 1;
+  }
+
+  const std::filesystem::path legacy_image_subdir_path =
+      temp_dir / "legacy_image_subdir.yaml";
+  {
+    std::ofstream ofs(legacy_image_subdir_path);
+    ofs << "deskew_clip_export:\n";
+    ofs << "  projection:\n";
+    ofs << "    enabled: true\n";
+    ofs << "    image_subdir: images_seg_mask2former/front_wide\n";
+    ofs << "    camera_names: [front_wide]\n";
+    ofs << "    output_subdir: projection\n";
+    ofs << "    max_time_diff_ms: 100.0\n";
+    ofs << "    point_radius_px: 2\n";
+    ofs << "    intensity_color_map: turbo\n";
+  }
+  if (segment_projection::application::LoadDeskewClipExportConfig(
+          legacy_image_subdir_path, &cfg, &error)) {
+    std::cerr << "legacy projection.image_subdir should be rejected\n";
     return 1;
   }
 

@@ -1,7 +1,6 @@
 #include <filesystem>
 #include <limits>
 #include <memory>
-#include <optional>
 #include <string>
 #include <vector>
 
@@ -32,21 +31,28 @@ using GacPcdPoint = segment_projection::data_loader::GacPcdPoint;
 using SemanticLabeledPoint =
     segment_projection::data_loader::SemanticLabeledPoint;
 using InspvaxSample = segment_projection::pose_parse::InspvaxSample;
-using FrontWideCameraModel =
-    segment_projection::projection::FrontWideCameraModel;
+using CameraModel = segment_projection::projection::CameraModel;
 using ImageIndex = segment_projection::projection::ImageIndex;
+using ImageMatch = segment_projection::projection::ImageMatch;
 using ProjectionRenderConfig =
     segment_projection::projection::ProjectionRenderConfig;
+using SemanticLookupContext =
+    segment_projection::projection::SemanticLookupContext;
 
 struct InterpolatedPose {
   Eigen::Vector3d utm_m = Eigen::Vector3d::Zero();
   Eigen::Quaterniond orientation = Eigen::Quaterniond::Identity();
 };
 
-struct ProjectionContext {
-  FrontWideCameraModel camera_model;
+struct CameraProjectionContext {
+  std::string camera_name;
+  CameraModel camera_model;
   std::unique_ptr<ImageIndex> image_index;
   std::filesystem::path output_dir;
+};
+
+struct ProjectionContext {
+  std::vector<CameraProjectionContext> camera_contexts;
   ProjectionRenderConfig render_config;
   segment_projection::projection::SemanticLabelMapping semantic_mapping;
   double max_time_diff_ms = 100.0;
@@ -190,30 +196,39 @@ int main(int argc, char** argv) {
 
   std::unique_ptr<ProjectionContext> projection;
   if (cfg.projection.enabled) {
-    const std::string& primary_camera_name = cfg.projection.camera_names.front();
     projection = std::make_unique<ProjectionContext>();
-    if (!segment_projection::projection::LoadFrontWideCameraModel(
-            clip.LidarTopToCarPath(),
-            clip.CameraToCarPath(primary_camera_name),
-            &projection->camera_model)) {
-      LOG(ERROR) << "Failed to load front-wide camera model";
-      return EXIT_FAILURE;
-    }
+    projection->camera_contexts.reserve(cfg.projection.camera_names.size());
+    for (const std::string& camera_name : cfg.projection.camera_names) {
+      CameraProjectionContext camera_context;
+      camera_context.camera_name = camera_name;
+      if (!segment_projection::projection::LoadCameraModel(
+              camera_name, clip.LidarTopToCarPath(),
+              clip.CameraToCarPath(camera_name),
+              &camera_context.camera_model)) {
+        LOG(ERROR) << "Failed to load camera model. camera_name="
+                   << camera_name;
+        return EXIT_FAILURE;
+      }
 
-    projection->image_index =
-        ImageIndex::Build(clip.CameraImageDir(cfg.projection.image_root_subdir,
-                                              primary_camera_name));
-    if (!projection->image_index) {
-      LOG(ERROR) << "Failed to build front-wide image index";
-      return EXIT_FAILURE;
-    }
+      camera_context.image_index = ImageIndex::Build(
+          clip.CameraImageDir(cfg.projection.image_root_subdir, camera_name));
+      if (!camera_context.image_index) {
+        LOG(ERROR) << "Failed to build image index. camera_name="
+                   << camera_name;
+        return EXIT_FAILURE;
+      }
 
-    projection->output_dir = clip.output_dir() / cfg.projection.output_subdir;
-    std::filesystem::create_directories(projection->output_dir, ec);
-    if (ec) {
-      LOG(ERROR) << "Failed to create projection output directory: "
-                 << projection->output_dir << ", error=" << ec.message();
-      return EXIT_FAILURE;
+      camera_context.output_dir =
+          clip.output_dir() / cfg.projection.output_subdir / camera_name;
+      std::filesystem::create_directories(camera_context.output_dir, ec);
+      if (ec) {
+        LOG(ERROR) << "Failed to create projection output directory: "
+                   << camera_context.output_dir
+                   << ", camera_name=" << camera_name
+                   << ", error=" << ec.message();
+        return EXIT_FAILURE;
+      }
+      projection->camera_contexts.push_back(std::move(camera_context));
     }
 
     projection->render_config.point_radius_px = cfg.projection.point_radius_px;
@@ -230,10 +245,16 @@ int main(int argc, char** argv) {
       return EXIT_FAILURE;
     }
 
-    LOG(INFO) << "Projection enabled. image_dir="
-              << projection->image_index->image_dir()
-              << ", image_count=" << projection->image_index->entries().size()
-              << ", output_dir=" << projection->output_dir;
+    LOG(INFO) << "Projection enabled. camera_count="
+              << projection->camera_contexts.size();
+    for (const auto& camera_context : projection->camera_contexts) {
+      LOG(INFO) << "Projection camera ready. camera_name="
+                << camera_context.camera_name
+                << ", image_dir=" << camera_context.image_index->image_dir()
+                << ", image_count="
+                << camera_context.image_index->entries().size()
+                << ", output_dir=" << camera_context.output_dir;
+    }
   }
 
   segment_projection::pose_parse::InspvaxAscParser parser;
@@ -362,36 +383,58 @@ int main(int argc, char** argv) {
     deskewed_cloud.height = 1;
     deskewed_cloud.is_dense = false;
 
-    std::optional<segment_projection::projection::ImageMatch> image_match;
-    cv::Mat semantic_image;
+    std::vector<ImageMatch> image_matches;
+    std::vector<cv::Mat> semantic_images;
+    std::vector<SemanticLookupContext> lookup_contexts;
     if (projection) {
-      image_match = projection->image_index->FindNearestOrNull(timestamp_ms);
-      if (!image_match) {
-        LOG(ERROR) << "No matching front-wide image for frame: " << pcd_path;
-        return EXIT_FAILURE;
-      }
-      if (static_cast<double>(image_match->delta_ms) >
-          projection->max_time_diff_ms) {
-        LOG(ERROR) << "Nearest front-wide image exceeds max delta for frame: "
-                   << pcd_path << ", pcd_ts_ms=" << timestamp_ms
-                   << ", image=" << image_match->path
-                   << ", image_ts_ms=" << image_match->timestamp_ms
-                   << ", delta_ms=" << image_match->delta_ms
-                   << ", max_time_diff_ms=" << projection->max_time_diff_ms;
-        return EXIT_FAILURE;
-      }
+      image_matches.reserve(projection->camera_contexts.size());
+      semantic_images.reserve(projection->camera_contexts.size());
+      lookup_contexts.reserve(projection->camera_contexts.size());
+      for (const auto& camera_context : projection->camera_contexts) {
+        const auto image_match =
+            camera_context.image_index->FindNearestOrNull(timestamp_ms);
+        if (!image_match) {
+          LOG(ERROR) << "No matching semantic image for frame: " << pcd_path
+                     << ", camera_name=" << camera_context.camera_name;
+          return EXIT_FAILURE;
+        }
+        if (static_cast<double>(image_match->delta_ms) >
+            projection->max_time_diff_ms) {
+          LOG(ERROR) << "Nearest semantic image exceeds max delta for frame: "
+                     << pcd_path << ", camera_name="
+                     << camera_context.camera_name
+                     << ", pcd_ts_ms=" << timestamp_ms
+                     << ", image=" << image_match->path
+                     << ", image_ts_ms=" << image_match->timestamp_ms
+                     << ", delta_ms=" << image_match->delta_ms
+                     << ", max_time_diff_ms=" << projection->max_time_diff_ms;
+          return EXIT_FAILURE;
+        }
 
-      semantic_image =
-          cv::imread(image_match->path.string(), cv::IMREAD_UNCHANGED);
-      if (semantic_image.empty()) {
-        LOG(ERROR) << "Failed to load projection image: " << image_match->path;
-        return EXIT_FAILURE;
+        cv::Mat semantic_image =
+            cv::imread(image_match->path.string(), cv::IMREAD_UNCHANGED);
+        if (semantic_image.empty()) {
+          LOG(ERROR) << "Failed to load projection image: " << image_match->path
+                     << ", camera_name=" << camera_context.camera_name;
+          return EXIT_FAILURE;
+        }
+        if (semantic_image.type() != CV_8UC1) {
+          LOG(ERROR) << "Semantic image must be single-channel grayscale: "
+                     << image_match->path << ", camera_name="
+                     << camera_context.camera_name
+                     << ", actual_type=" << semantic_image.type();
+          return EXIT_FAILURE;
+        }
+
+        image_matches.push_back(*image_match);
+        semantic_images.push_back(std::move(semantic_image));
       }
-      if (semantic_image.type() != CV_8UC1) {
-        LOG(ERROR) << "Semantic image must be single-channel grayscale: "
-                   << image_match->path << ", actual_type="
-                   << semantic_image.type();
-        return EXIT_FAILURE;
+      for (std::size_t i = 0; i < projection->camera_contexts.size(); ++i) {
+        SemanticLookupContext lookup_context;
+        lookup_context.camera_model = &projection->camera_contexts[i].camera_model;
+        lookup_context.semantic_image = &semantic_images[i];
+        lookup_context.mapping = &projection->semantic_mapping;
+        lookup_contexts.push_back(lookup_context);
       }
     }
 
@@ -408,9 +451,8 @@ int main(int argc, char** argv) {
       labeled_point.semantic_label = -1;
 
       if (projection &&
-          !segment_projection::projection::LookupSemanticLabelForPoint(
-              point, projection->camera_model, semantic_image,
-              projection->semantic_mapping, &labeled_point.semantic_label)) {
+          !segment_projection::projection::LookupSemanticLabelForPointMultiCamera(
+              point, lookup_contexts, &labeled_point.semantic_label)) {
         LOG(ERROR) << "Failed to resolve semantic label for frame: "
                    << pcd_path;
         return EXIT_FAILURE;
@@ -431,30 +473,36 @@ int main(int argc, char** argv) {
     }
 
     if (projection) {
-      cv::Mat projected_image;
-      int valid_projected_count = 0;
-      if (!segment_projection::projection::RenderFrontWideProjection(
-              deskewed_cloud, projection->camera_model,
-              projection->render_config, semantic_image, &projected_image,
-              &valid_projected_count)) {
-        LOG(ERROR) << "Failed to render front-wide projection for frame: "
-                   << pcd_path;
-        return EXIT_FAILURE;
-      }
+      const std::string output_name =
+          TimestampNameFromPcdPath(pcd_path, timestamp_ms) + ".png";
+      for (std::size_t i = 0; i < projection->camera_contexts.size(); ++i) {
+        const auto& camera_context = projection->camera_contexts[i];
+        cv::Mat projected_image;
+        int valid_projected_count = 0;
+        if (!segment_projection::projection::RenderProjection(
+                deskewed_cloud, camera_context.camera_model,
+                projection->render_config, semantic_images[i], &projected_image,
+                &valid_projected_count)) {
+          LOG(ERROR) << "Failed to render projection for frame: " << pcd_path
+                     << ", camera_name=" << camera_context.camera_name;
+          return EXIT_FAILURE;
+        }
 
-      const std::filesystem::path projection_output_path =
-          projection->output_dir /
-          (TimestampNameFromPcdPath(pcd_path, timestamp_ms) + ".png");
-      if (!cv::imwrite(projection_output_path.string(), projected_image)) {
-        LOG(ERROR) << "Failed to save projection PNG: "
-                   << projection_output_path;
-        return EXIT_FAILURE;
-      }
+        const std::filesystem::path projection_output_path =
+            camera_context.output_dir / output_name;
+        if (!cv::imwrite(projection_output_path.string(), projected_image)) {
+          LOG(ERROR) << "Failed to save projection PNG: "
+                     << projection_output_path
+                     << ", camera_name=" << camera_context.camera_name;
+          return EXIT_FAILURE;
+        }
 
-      LOG(INFO) << "Projected " << pcd_path.filename() << " -> "
-                << projection_output_path
-                << ", projected_points=" << valid_projected_count
-                << ", image_delta_ms=" << image_match->delta_ms;
+        LOG(INFO) << "Projected " << pcd_path.filename() << " -> "
+                  << projection_output_path << ", camera_name="
+                  << camera_context.camera_name
+                  << ", projected_points=" << valid_projected_count
+                  << ", image_delta_ms=" << image_matches[i].delta_ms;
+      }
     }
 
     LOG(INFO) << "Deskewed " << pcd_path.filename() << " -> " << output_path

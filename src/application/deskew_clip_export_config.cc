@@ -34,6 +34,14 @@ bool ParseProjectionConfig(const YAML::Node& node, ProjectionConfig* projection,
   if (node["image_root_subdir"]) {
     projection->image_root_subdir = node["image_root_subdir"].as<std::string>();
   }
+  if (node["image_subdir"]) {
+    if (error) {
+      *error =
+          "projection.image_subdir is no longer supported; use "
+          "projection.image_root_subdir and projection.camera_names";
+    }
+    return false;
+  }
   if (node["camera_names"]) {
     const YAML::Node camera_names = node["camera_names"];
     if (!camera_names.IsSequence()) {
@@ -88,15 +96,6 @@ bool ParseProjectionConfig(const YAML::Node& node, ProjectionConfig* projection,
     }
     return false;
   }
-  if (projection->camera_names.front() != "front_wide") {
-    if (error) {
-      *error =
-          "projection.camera_names.front() must be front_wide until "
-          "generic camera calibration is implemented";
-    }
-    return false;
-  }
-
   std::set<std::string> seen_names;
   for (const std::string& camera_name : projection->camera_names) {
     if (!seen_names.insert(camera_name).second) {

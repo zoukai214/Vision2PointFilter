@@ -1,0 +1,21 @@
+deskew_clip_export:
+  pose:
+    coord_frame: utm
+
+  frame_stride: 1
+
+  deskew:
+    max_range_m: 100.0
+    interp_max_gap_ms: 100.0
+
+  output:
+    subdir: deskew_pcd
+
+  projection:
+    enabled: true
+    image_root_subdir: images_seg_mask2former
+    camera_names: [back, front_wide, left_back, left_front, right_back, right_front]
+    output_subdir: projection
+    max_time_diff_ms: 100.0
+    point_radius_px: 2
+    intensity_color_map: turbo

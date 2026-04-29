@@ -6,7 +6,7 @@ namespace segment_projection::projection {
 
 bool LookupSemanticLabelForPoint(
     const segment_projection::data_loader::GacPcdPoint& point,
-    const FrontWideCameraModel& camera_model, const cv::Mat& semantic_image,
+    const CameraModel& camera_model, const cv::Mat& semantic_image,
     const SemanticLabelMapping& mapping, int* semantic_label) {
   if (!semantic_label || semantic_image.empty() ||
       semantic_image.type() != CV_8UC1) {
@@ -31,6 +31,34 @@ bool LookupSemanticLabelForPoint(
   }
 
   *semantic_label = mapped_label;
+  return true;
+}
+
+bool LookupSemanticLabelForPointMultiCamera(
+    const segment_projection::data_loader::GacPcdPoint& point,
+    const std::vector<SemanticLookupContext>& lookup_contexts,
+    int* semantic_label) {
+  if (!semantic_label) {
+    return false;
+  }
+
+  *semantic_label = -1;
+  for (const SemanticLookupContext& context : lookup_contexts) {
+    if (!context.camera_model || !context.semantic_image || !context.mapping) {
+      return false;
+    }
+
+    int candidate_label = -1;
+    if (!LookupSemanticLabelForPoint(point, *context.camera_model,
+                                     *context.semantic_image, *context.mapping,
+                                     &candidate_label)) {
+      return false;
+    }
+    if (candidate_label >= 0) {
+      *semantic_label = candidate_label;
+      return true;
+    }
+  }
   return true;
 }
 

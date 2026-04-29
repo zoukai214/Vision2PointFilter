@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <vector>
 
 #include <opencv2/core.hpp>
 
@@ -70,6 +71,33 @@ int main() {
           &semantic_label) ||
       semantic_label != -1) {
     std::cerr << "out-of-image point should map to -1\n";
+    return 1;
+  }
+
+  segment_projection::projection::CameraModel fallback_camera_model =
+      camera_model;
+  cv::Mat first_image = cv::Mat::zeros(10, 10, CV_8UC1);
+  cv::Mat second_image = cv::Mat::zeros(10, 10, CV_8UC1);
+  first_image.at<std::uint8_t>(5, 5) = 250;
+  second_image.at<std::uint8_t>(5, 5) = 51;
+  const std::vector<segment_projection::projection::SemanticLookupContext>
+      lookup_contexts = {
+          {&camera_model, &first_image, &mapping},
+          {&fallback_camera_model, &second_image, &mapping},
+      };
+  if (!segment_projection::projection::LookupSemanticLabelForPointMultiCamera(
+          MakePoint(0.0f, 0.0f, 2.0f), lookup_contexts, &semantic_label) ||
+      semantic_label != 13) {
+    std::cerr << "multi-camera lookup should fall through to later camera\n";
+    return 1;
+  }
+
+  first_image.at<std::uint8_t>(5, 5) = 51;
+  second_image.at<std::uint8_t>(5, 5) = 0;
+  if (!segment_projection::projection::LookupSemanticLabelForPointMultiCamera(
+          MakePoint(0.0f, 0.0f, 2.0f), lookup_contexts, &semantic_label) ||
+      semantic_label != 13) {
+    std::cerr << "multi-camera lookup should keep first valid camera label\n";
     return 1;
   }
 
