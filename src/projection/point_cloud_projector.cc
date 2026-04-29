@@ -90,6 +90,20 @@ bool ProjectPoint(const Eigen::Vector3d& point_cam,
 
 }  // namespace
 
+bool ProjectLidarPointToPixel(
+    const segment_projection::data_loader::GacPcdPoint& point,
+    const FrontWideCameraModel& camera_model, cv::Point* pixel) {
+  if (!pixel || !std::isfinite(point.x) || !std::isfinite(point.y) ||
+      !std::isfinite(point.z)) {
+    return false;
+  }
+
+  const Eigen::Vector4d point_lidar(point.x, point.y, point.z, 1.0);
+  const Eigen::Vector4d point_car = camera_model.T_car_lidar * point_lidar;
+  const Eigen::Vector4d point_cam = camera_model.T_cam_car * point_car;
+  return ProjectPoint(point_cam.head<3>(), camera_model, pixel);
+}
+
 bool RenderFrontWideProjection(
     const pcl::PointCloud<segment_projection::data_loader::GacPcdPoint>& cloud,
     const FrontWideCameraModel& camera_model,
@@ -115,17 +129,8 @@ bool RenderFrontWideProjection(
   int max_intensity = std::numeric_limits<int>::lowest();
 
   for (const auto& point : cloud) {
-    if (!std::isfinite(point.x) || !std::isfinite(point.y) ||
-        !std::isfinite(point.z)) {
-      continue;
-    }
-
-    const Eigen::Vector4d point_lidar(point.x, point.y, point.z, 1.0);
-    const Eigen::Vector4d point_car = camera_model.T_car_lidar * point_lidar;
-    const Eigen::Vector4d point_cam = camera_model.T_cam_car * point_car;
-
     cv::Point pixel;
-    if (!ProjectPoint(point_cam.head<3>(), camera_model, &pixel)) {
+    if (!ProjectLidarPointToPixel(point, camera_model, &pixel)) {
       continue;
     }
 
