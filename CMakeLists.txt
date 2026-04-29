@@ -76,18 +76,19 @@ set(segment_projection_projection_sources
   src/projection/semantic_label_mapping.cc
   src/projection/semantic_point_labeler.cc
 )
-set(segment_projection_projection_all_sources_present TRUE)
+set(segment_projection_projection_existing_sources)
 foreach(segment_projection_projection_source IN LISTS segment_projection_projection_sources)
-  if(NOT EXISTS "${PROJECT_SOURCE_DIR}/${segment_projection_projection_source}")
-    set(segment_projection_projection_all_sources_present FALSE)
+  if(EXISTS "${PROJECT_SOURCE_DIR}/${segment_projection_projection_source}")
+    list(APPEND segment_projection_projection_existing_sources
+      "${segment_projection_projection_source}")
   endif()
 endforeach()
 
-if(segment_projection_projection_all_sources_present)
+if(segment_projection_projection_existing_sources)
   find_package(OpenCV REQUIRED COMPONENTS imgcodecs imgproc)
 
   add_library(segment_projection_projection
-    ${segment_projection_projection_sources}
+    ${segment_projection_projection_existing_sources}
   )
   target_link_libraries(segment_projection_projection
     PUBLIC
