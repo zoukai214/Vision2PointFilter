@@ -11,6 +11,7 @@ compile_commands.json
 .DS_Store
 .idea/
 .vscode/
+.worktrees/
 
 # Local environment and secrets
 .env
