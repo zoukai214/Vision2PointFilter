@@ -18,6 +18,16 @@ bool ParseProjectionConfig(const YAML::Node& node, ProjectionConfig* projection,
     return false;
   }
 
+  if (!node) {
+    if (projection->enabled) {
+      if (error) {
+        *error = "projection.camera_names must be set when enabled";
+      }
+      return false;
+    }
+    return true;
+  }
+
   if (node["enabled"]) {
     projection->enabled = node["enabled"].as<bool>();
   }
@@ -168,10 +178,8 @@ bool LoadDeskewClipExportConfig(const std::filesystem::path& config_path,
         cfg->output_subdir = output["subdir"].as<std::string>();
       }
     }
-    if (const YAML::Node projection = node["projection"]) {
-      if (!ParseProjectionConfig(projection, &cfg->projection, error)) {
-        return false;
-      }
+    if (!ParseProjectionConfig(node["projection"], &cfg->projection, error)) {
+      return false;
     }
 
     if (cfg->frame_stride <= 0) {

@@ -81,6 +81,19 @@ int main() {
     return 1;
   }
 
+  const std::filesystem::path missing_projection_path =
+      temp_dir / "missing_projection.yaml";
+  {
+    std::ofstream ofs(missing_projection_path);
+    ofs << "deskew_clip_export:\n";
+    ofs << "  frame_stride: 1\n";
+  }
+  if (segment_projection::application::LoadDeskewClipExportConfig(
+          missing_projection_path, &cfg, &error)) {
+    std::cerr << "missing projection block should fail when enabled defaults to true\n";
+    return 1;
+  }
+
   const std::filesystem::path duplicate_path = temp_dir / "duplicate.yaml";
   {
     std::ofstream ofs(duplicate_path);
