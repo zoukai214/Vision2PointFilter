@@ -43,7 +43,13 @@ std::filesystem::path GacClipRootLoader::LidarTopToCarPath() const {
 }
 
 std::filesystem::path GacClipRootLoader::CameraFrontWideToCarPath() const {
-  return CalibExtractDir() / "calib_camera_front_wide_to_car.json";
+  return CameraToCarPath("front_wide");
+}
+
+std::filesystem::path GacClipRootLoader::CameraToCarPath(
+    const std::string& camera_name) const {
+  return CalibExtractDir() /
+         ("calib_camera_" + camera_name + "_to_car.json");
 }
 
 std::filesystem::path GacClipRootLoader::IePostTrajAscPath() const {
@@ -57,6 +63,16 @@ std::filesystem::path GacClipRootLoader::FrontWideImageDir(
     return std::filesystem::absolute(clip_root_ / subdir_path);
   }
   return std::filesystem::absolute(subdir_path);
+}
+
+std::filesystem::path GacClipRootLoader::CameraImageDir(
+    const std::string& image_root_subdir,
+    const std::string& camera_name) const {
+  const std::filesystem::path root_path(image_root_subdir);
+  const std::filesystem::path full_path =
+      root_path.is_relative() ? (clip_root_ / root_path / camera_name)
+                              : (root_path / camera_name);
+  return std::filesystem::absolute(full_path);
 }
 
 Eigen::Matrix4d GacClipRootLoader::InvertRigidTransform(

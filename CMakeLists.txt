@@ -122,6 +122,7 @@ endif()
 
 add_executable(deskew_clip_export
   src/application/deskew_clip_export.cc
+  src/application/deskew_clip_export_config.cc
   src/application/deskew_global_frame.cc
 )
 target_link_libraries(deskew_clip_export
@@ -201,6 +202,23 @@ if(EXISTS "${PROJECT_SOURCE_DIR}/tests/projection/semantic_point_labeler_test.cc
       glog::glog
   )
   add_test(NAME semantic_point_labeler_test COMMAND semantic_point_labeler_test)
+endif()
+
+if(EXISTS "${PROJECT_SOURCE_DIR}/tests/application/deskew_clip_export_config_test.cc")
+  add_executable(deskew_clip_export_config_test
+    tests/application/deskew_clip_export_config_test.cc
+    src/application/deskew_clip_export_config.cc
+    src/application/deskew_global_frame.cc
+  )
+  target_link_libraries(deskew_clip_export_config_test
+    PRIVATE
+      segment_projection_common
+      segment_projection_data_loader
+      segment_projection_pose_parse
+      yaml-cpp
+      glog::glog
+  )
+  add_test(NAME deskew_clip_export_config_test COMMAND deskew_clip_export_config_test)
 endif()
 
 if(EXISTS "${PROJECT_SOURCE_DIR}/tests/application/deskew_global_frame_test.cc")

@@ -11,8 +11,8 @@
 #include <glog/logging.h>
 #include <opencv2/imgcodecs.hpp>
 #include <pcl/io/pcd_io.h>
-#include <yaml-cpp/yaml.h>
 
+#include "application/deskew_clip_export_config.h"
 #include "application/deskew_global_frame.h"
 #include "data_loader/gac_clip_root_loader.h"
 #include "data_loader/gac_pcd_point.h"
@@ -38,21 +38,6 @@ using ImageIndex = segment_projection::projection::ImageIndex;
 using ProjectionRenderConfig =
     segment_projection::projection::ProjectionRenderConfig;
 
-struct Config {
-  segment_projection::application::GlobalFrame global_frame =
-      segment_projection::application::GlobalFrame::kEnu;
-  int frame_stride = 1;
-  double deskew_max_range_m = 100.0;
-  double interp_max_gap_ms = 100.0;
-  std::string output_subdir = "deskew_pcd";
-  bool projection_enabled = true;
-  std::string projection_image_subdir = "images_seg_mask2former/front_wide";
-  std::string projection_output_subdir = "projection_front_wide";
-  double projection_max_time_diff_ms = 100.0;
-  int projection_point_radius_px = 2;
-  std::string projection_intensity_color_map = "turbo";
-};
-
 struct InterpolatedPose {
   Eigen::Vector3d utm_m = Eigen::Vector3d::Zero();
   Eigen::Quaterniond orientation = Eigen::Quaterniond::Identity();
@@ -74,102 +59,6 @@ std::string TimestampNameFromPcdPath(const std::filesystem::path& pcd_path,
     return stem;
   }
   return std::to_string(fallback_ms);
-}
-
-bool LoadConfig(const std::filesystem::path& config_path, Config* cfg) {
-  if (!cfg) {
-    return false;
-  }
-  const YAML::Node root = YAML::LoadFile(config_path.string());
-  const YAML::Node node = root["deskew_clip_export"];
-  if (!node) {
-    LOG(ERROR) << "Missing 'deskew_clip_export' root in " << config_path;
-    return false;
-  }
-
-  if (node["frame_stride"]) {
-    cfg->frame_stride = node["frame_stride"].as<int>();
-  }
-  if (const YAML::Node pose = node["pose"]) {
-    if (pose["coord_frame"]) {
-      std::string error;
-      if (!segment_projection::application::ParseGlobalFrameString(
-              pose["coord_frame"].as<std::string>(), &cfg->global_frame,
-              &error)) {
-        LOG(ERROR) << error;
-        return false;
-      }
-    }
-  }
-  if (const YAML::Node deskew = node["deskew"]) {
-    if (deskew["max_range_m"]) {
-      cfg->deskew_max_range_m = deskew["max_range_m"].as<double>();
-    }
-    if (deskew["interp_max_gap_ms"]) {
-      cfg->interp_max_gap_ms = deskew["interp_max_gap_ms"].as<double>();
-    }
-  }
-  if (const YAML::Node output = node["output"]) {
-    if (output["subdir"]) {
-      cfg->output_subdir = output["subdir"].as<std::string>();
-    }
-  }
-  if (const YAML::Node projection = node["projection"]) {
-    if (projection["enabled"]) {
-      cfg->projection_enabled = projection["enabled"].as<bool>();
-    }
-    if (projection["image_subdir"]) {
-      cfg->projection_image_subdir =
-          projection["image_subdir"].as<std::string>();
-    }
-    if (projection["output_subdir"]) {
-      cfg->projection_output_subdir =
-          projection["output_subdir"].as<std::string>();
-    }
-    if (projection["max_time_diff_ms"]) {
-      cfg->projection_max_time_diff_ms =
-          projection["max_time_diff_ms"].as<double>();
-    }
-    if (projection["point_radius_px"]) {
-      cfg->projection_point_radius_px = projection["point_radius_px"].as<int>();
-    }
-    if (projection["intensity_color_map"]) {
-      cfg->projection_intensity_color_map =
-          projection["intensity_color_map"].as<std::string>();
-    }
-  }
-
-  if (cfg->frame_stride <= 0) {
-    LOG(ERROR) << "frame_stride must be > 0";
-    return false;
-  }
-  if (!(cfg->interp_max_gap_ms > 0.0)) {
-    LOG(ERROR) << "deskew.interp_max_gap_ms must be > 0";
-    return false;
-  }
-  if (cfg->projection_enabled) {
-    if (cfg->projection_image_subdir.empty()) {
-      LOG(ERROR) << "projection.image_subdir must not be empty when enabled";
-      return false;
-    }
-    if (cfg->projection_output_subdir.empty()) {
-      LOG(ERROR) << "projection.output_subdir must not be empty when enabled";
-      return false;
-    }
-    if (cfg->projection_max_time_diff_ms < 0.0) {
-      LOG(ERROR) << "projection.max_time_diff_ms must be >= 0";
-      return false;
-    }
-    if (cfg->projection_point_radius_px <= 0) {
-      LOG(ERROR) << "projection.point_radius_px must be > 0";
-      return false;
-    }
-    if (cfg->projection_intensity_color_map.empty()) {
-      LOG(ERROR) << "projection.intensity_color_map must not be empty";
-      return false;
-    }
-  }
-  return true;
 }
 
 bool LoadPcdCloud(const std::string& pcd_path,
@@ -276,8 +165,11 @@ int main(int argc, char** argv) {
   const std::filesystem::path output_dir =
       (argc >= 4) ? std::filesystem::path(argv[3]) : (clip_root / "output");
 
-  Config cfg;
-  if (!LoadConfig(config_path, &cfg)) {
+  segment_projection::application::DeskewClipExportConfig cfg;
+  std::string config_error;
+  if (!segment_projection::application::LoadDeskewClipExportConfig(
+          config_path, &cfg, &config_error)) {
+    LOG(ERROR) << config_error;
     return EXIT_FAILURE;
   }
 
@@ -297,23 +189,26 @@ int main(int argc, char** argv) {
   }
 
   std::unique_ptr<ProjectionContext> projection;
-  if (cfg.projection_enabled) {
+  if (cfg.projection.enabled) {
+    const std::string& primary_camera_name = cfg.projection.camera_names.front();
     projection = std::make_unique<ProjectionContext>();
     if (!segment_projection::projection::LoadFrontWideCameraModel(
-            clip.LidarTopToCarPath(), clip.CameraFrontWideToCarPath(),
+            clip.LidarTopToCarPath(),
+            clip.CameraToCarPath(primary_camera_name),
             &projection->camera_model)) {
       LOG(ERROR) << "Failed to load front-wide camera model";
       return EXIT_FAILURE;
     }
 
     projection->image_index =
-        ImageIndex::Build(clip.FrontWideImageDir(cfg.projection_image_subdir));
+        ImageIndex::Build(clip.CameraImageDir(cfg.projection.image_root_subdir,
+                                              primary_camera_name));
     if (!projection->image_index) {
       LOG(ERROR) << "Failed to build front-wide image index";
       return EXIT_FAILURE;
     }
 
-    projection->output_dir = clip.output_dir() / cfg.projection_output_subdir;
+    projection->output_dir = clip.output_dir() / cfg.projection.output_subdir;
     std::filesystem::create_directories(projection->output_dir, ec);
     if (ec) {
       LOG(ERROR) << "Failed to create projection output directory: "
@@ -321,10 +216,10 @@ int main(int argc, char** argv) {
       return EXIT_FAILURE;
     }
 
-    projection->render_config.point_radius_px = cfg.projection_point_radius_px;
+    projection->render_config.point_radius_px = cfg.projection.point_radius_px;
     projection->render_config.intensity_color_map =
-        cfg.projection_intensity_color_map;
-    projection->max_time_diff_ms = cfg.projection_max_time_diff_ms;
+        cfg.projection.intensity_color_map;
+    projection->max_time_diff_ms = cfg.projection.max_time_diff_ms;
     const std::filesystem::path semantic_mapping_path =
         config_path.parent_path().parent_path() /
         "class_to_grayscale_mapping_panoptic.json";
