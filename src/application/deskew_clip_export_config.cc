@@ -88,6 +88,14 @@ bool ParseProjectionConfig(const YAML::Node& node, ProjectionConfig* projection,
     }
     return false;
   }
+  if (projection->camera_names.front() != "front_wide") {
+    if (error) {
+      *error =
+          "projection.camera_names.front() must be front_wide until "
+          "generic camera calibration is implemented";
+    }
+    return false;
+  }
 
   std::set<std::string> seen_names;
   for (const std::string& camera_name : projection->camera_names) {

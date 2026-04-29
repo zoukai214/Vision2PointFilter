@@ -94,6 +94,26 @@ int main() {
     return 1;
   }
 
+  const std::filesystem::path non_front_wide_path =
+      temp_dir / "non_front_wide.yaml";
+  {
+    std::ofstream ofs(non_front_wide_path);
+    ofs << "deskew_clip_export:\n";
+    ofs << "  projection:\n";
+    ofs << "    enabled: true\n";
+    ofs << "    image_root_subdir: images_seg_mask2former\n";
+    ofs << "    camera_names: [back, front_wide]\n";
+    ofs << "    output_subdir: projection\n";
+    ofs << "    max_time_diff_ms: 100.0\n";
+    ofs << "    point_radius_px: 2\n";
+    ofs << "    intensity_color_map: turbo\n";
+  }
+  if (segment_projection::application::LoadDeskewClipExportConfig(
+          non_front_wide_path, &cfg, &error)) {
+    std::cerr << "first camera must be front_wide until generic calibration exists\n";
+    return 1;
+  }
+
   const std::filesystem::path duplicate_path = temp_dir / "duplicate.yaml";
   {
     std::ofstream ofs(duplicate_path);
