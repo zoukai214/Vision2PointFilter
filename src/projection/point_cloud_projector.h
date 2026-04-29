@@ -15,6 +15,10 @@ struct ProjectionRenderConfig {
   std::string intensity_color_map = "turbo";
 };
 
+bool ProjectLidarPointToPixel(
+    const segment_projection::data_loader::GacPcdPoint& point,
+    const FrontWideCameraModel& camera_model, cv::Point* pixel);
+
 bool RenderFrontWideProjection(
     const pcl::PointCloud<segment_projection::data_loader::GacPcdPoint>& cloud,
     const FrontWideCameraModel& camera_model,

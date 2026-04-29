@@ -1,6 +1,7 @@
 #include <filesystem>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -15,16 +16,21 @@
 #include "application/deskew_global_frame.h"
 #include "data_loader/gac_clip_root_loader.h"
 #include "data_loader/gac_pcd_point.h"
+#include "data_loader/semantic_labeled_point.h"
 #include "pose_parse/inspvax_asc_parser.h"
 #include "projection/camera_calibration.h"
 #include "projection/front_wide_projection_types.h"
 #include "projection/image_index.h"
 #include "projection/point_cloud_projector.h"
+#include "projection/semantic_label_mapping.h"
+#include "projection/semantic_point_labeler.h"
 
 namespace {
 
 using ClipLoader = segment_projection::data_loader::GacClipRootLoader;
 using GacPcdPoint = segment_projection::data_loader::GacPcdPoint;
+using SemanticLabeledPoint =
+    segment_projection::data_loader::SemanticLabeledPoint;
 using InspvaxSample = segment_projection::pose_parse::InspvaxSample;
 using FrontWideCameraModel =
     segment_projection::projection::FrontWideCameraModel;
@@ -57,6 +63,7 @@ struct ProjectionContext {
   std::unique_ptr<ImageIndex> image_index;
   std::filesystem::path output_dir;
   ProjectionRenderConfig render_config;
+  segment_projection::projection::SemanticLabelMapping semantic_mapping;
   double max_time_diff_ms = 100.0;
 };
 
@@ -175,6 +182,15 @@ bool LoadPcdCloud(const std::string& pcd_path,
     return false;
   }
   return true;
+}
+
+bool LoadSemanticMapping(
+    const std::filesystem::path& mapping_path,
+    segment_projection::projection::SemanticLabelMapping* mapping) {
+  if (!mapping) {
+    return false;
+  }
+  return mapping->LoadFromJson(mapping_path);
 }
 
 const InspvaxSample* FindNearestSample(const std::vector<InspvaxSample>& samples,
@@ -309,6 +325,15 @@ int main(int argc, char** argv) {
     projection->render_config.intensity_color_map =
         cfg.projection_intensity_color_map;
     projection->max_time_diff_ms = cfg.projection_max_time_diff_ms;
+    const std::filesystem::path semantic_mapping_path =
+        config_path.parent_path().parent_path() /
+        "class_to_grayscale_mapping_panoptic.json";
+    if (!LoadSemanticMapping(semantic_mapping_path,
+                             &projection->semantic_mapping)) {
+      LOG(ERROR) << "Failed to load semantic mapping json: "
+                 << semantic_mapping_path;
+      return EXIT_FAILURE;
+    }
 
     LOG(INFO) << "Projection enabled. image_dir="
               << projection->image_index->image_dir()
@@ -442,17 +467,10 @@ int main(int argc, char** argv) {
     deskewed_cloud.height = 1;
     deskewed_cloud.is_dense = false;
 
-    const std::filesystem::path output_path =
-        output_pcd_dir / (TimestampNameFromPcdPath(pcd_path, timestamp_ms) + ".pcd");
-    if (pcl::io::savePCDFileBinary(output_path.string(), deskewed_cloud) != 0) {
-      LOG(ERROR) << "Failed to save deskewed PCD: " << output_path;
-      ++skipped_frames;
-      continue;
-    }
-
+    std::optional<segment_projection::projection::ImageMatch> image_match;
+    cv::Mat semantic_image;
     if (projection) {
-      const auto image_match =
-          projection->image_index->FindNearestOrNull(timestamp_ms);
+      image_match = projection->image_index->FindNearestOrNull(timestamp_ms);
       if (!image_match) {
         LOG(ERROR) << "No matching front-wide image for frame: " << pcd_path;
         return EXIT_FAILURE;
@@ -468,18 +486,61 @@ int main(int argc, char** argv) {
         return EXIT_FAILURE;
       }
 
-      const cv::Mat input_image =
+      semantic_image =
           cv::imread(image_match->path.string(), cv::IMREAD_UNCHANGED);
-      if (input_image.empty()) {
+      if (semantic_image.empty()) {
         LOG(ERROR) << "Failed to load projection image: " << image_match->path;
         return EXIT_FAILURE;
       }
+      if (semantic_image.type() != CV_8UC1) {
+        LOG(ERROR) << "Semantic image must be single-channel grayscale: "
+                   << image_match->path << ", actual_type="
+                   << semantic_image.type();
+        return EXIT_FAILURE;
+      }
+    }
 
+    pcl::PointCloud<SemanticLabeledPoint> labeled_cloud;
+    labeled_cloud.reserve(deskewed_cloud.size());
+    for (const auto& point : deskewed_cloud) {
+      SemanticLabeledPoint labeled_point;
+      labeled_point.x = point.x;
+      labeled_point.y = point.y;
+      labeled_point.z = point.z;
+      labeled_point.intensity = point.intensity;
+      labeled_point.ring = point.ring;
+      labeled_point.point_time_offset = point.point_time_offset;
+      labeled_point.semantic_label = -1;
+
+      if (projection &&
+          !segment_projection::projection::LookupSemanticLabelForPoint(
+              point, projection->camera_model, semantic_image,
+              projection->semantic_mapping, &labeled_point.semantic_label)) {
+        LOG(ERROR) << "Failed to resolve semantic label for frame: "
+                   << pcd_path;
+        return EXIT_FAILURE;
+      }
+
+      labeled_cloud.push_back(labeled_point);
+    }
+    labeled_cloud.width = static_cast<std::uint32_t>(labeled_cloud.size());
+    labeled_cloud.height = 1;
+    labeled_cloud.is_dense = false;
+
+    const std::filesystem::path output_path =
+        output_pcd_dir / (TimestampNameFromPcdPath(pcd_path, timestamp_ms) + ".pcd");
+    if (pcl::io::savePCDFileBinary(output_path.string(), labeled_cloud) != 0) {
+      LOG(ERROR) << "Failed to save semantic-labeled PCD: " << output_path;
+      ++skipped_frames;
+      continue;
+    }
+
+    if (projection) {
       cv::Mat projected_image;
       int valid_projected_count = 0;
       if (!segment_projection::projection::RenderFrontWideProjection(
               deskewed_cloud, projection->camera_model,
-              projection->render_config, input_image, &projected_image,
+              projection->render_config, semantic_image, &projected_image,
               &valid_projected_count)) {
         LOG(ERROR) << "Failed to render front-wide projection for frame: "
                    << pcd_path;
