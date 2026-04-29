@@ -64,7 +64,7 @@ cv::Scalar PseudoColor(double normalized_intensity) {
 }
 
 bool ProjectPoint(const Eigen::Vector3d& point_cam,
-                  const FrontWideCameraModel& camera_model,
+                  const CameraModel& camera_model,
                   cv::Point* pixel) {
   if (!pixel || !IsFinitePoint(point_cam) || point_cam.z() <= 0.0) {
     return false;
@@ -92,7 +92,7 @@ bool ProjectPoint(const Eigen::Vector3d& point_cam,
 
 bool ProjectLidarPointToPixel(
     const segment_projection::data_loader::GacPcdPoint& point,
-    const FrontWideCameraModel& camera_model, cv::Point* pixel) {
+    const CameraModel& camera_model, cv::Point* pixel) {
   if (!pixel || !std::isfinite(point.x) || !std::isfinite(point.y) ||
       !std::isfinite(point.z)) {
     return false;
@@ -104,9 +104,9 @@ bool ProjectLidarPointToPixel(
   return ProjectPoint(point_cam.head<3>(), camera_model, pixel);
 }
 
-bool RenderFrontWideProjection(
+bool RenderProjection(
     const pcl::PointCloud<segment_projection::data_loader::GacPcdPoint>& cloud,
-    const FrontWideCameraModel& camera_model,
+    const CameraModel& camera_model,
     const ProjectionRenderConfig& config, const cv::Mat& input_image,
     cv::Mat* output_image, int* valid_projected_count) {
   if (!output_image || !valid_projected_count || config.point_radius_px <= 0 ||

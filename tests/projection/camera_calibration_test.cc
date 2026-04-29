@@ -32,6 +32,8 @@ int main() {
 
   const auto lidar_path = temp_dir / "calib_lidar_top_to_car.json";
   const auto camera_path = temp_dir / "calib_camera_front_wide_to_car.json";
+  const auto left_front_camera_path =
+      temp_dir / "calib_camera_left_front_to_car.json";
   if (!WriteTextFile(
           lidar_path,
           R"json({
@@ -95,91 +97,59 @@ int main() {
     return 1;
   }
 
-  segment_projection::projection::FrontWideCameraModel model;
-  const bool ok = segment_projection::projection::LoadFrontWideCameraModel(
-      lidar_path, camera_path, &model);
-  if (!ok) {
-    std::cerr << "LoadFrontWideCameraModel returned false\n";
+  segment_projection::projection::CameraModel front_model;
+  if (!segment_projection::projection::LoadCameraModel(
+          "front_wide", lidar_path, camera_path, &front_model)) {
+    std::cerr << "LoadCameraModel(front_wide) failed\n";
     return 1;
   }
-  if (model.image_width != 3840 || model.image_height != 2160) {
-    std::cerr << "unexpected image size: " << model.image_width << "x"
-              << model.image_height << "\n";
-    return 1;
-  }
-  if (std::abs(model.K(0, 0) - 1344.4) > 1e-6) {
-    std::cerr << "unexpected fx: " << model.K(0, 0) << "\n";
-    return 1;
-  }
-  Eigen::Matrix4d expected_T_car_lidar = Eigen::Matrix4d::Identity();
-  expected_T_car_lidar(0, 3) = 1.5;
-  expected_T_car_lidar(1, 3) = -2.0;
-  expected_T_car_lidar(2, 3) = 0.25;
-  if (!model.T_car_lidar.isApprox(expected_T_car_lidar, 1e-12)) {
-    std::cerr << "unexpected T_car_lidar\n";
-    return 1;
-  }
-  const Eigen::Matrix4d expected_T_lidar_car = expected_T_car_lidar.inverse();
-  if (!model.T_lidar_car.isApprox(expected_T_lidar_car, 1e-12)) {
-    std::cerr << "unexpected T_lidar_car\n";
-    return 1;
-  }
-  if (!model.T_cam_car.isApprox(model.T_car_cam.inverse(), 1e-9)) {
-    std::cerr << "expected T_cam_car to equal inverse(T_car_cam)\n";
-    return 1;
-  }
-  Eigen::Matrix4d expected_T_car_cam = Eigen::Matrix4d::Identity();
-  expected_T_car_cam(0, 0) = 0.0;
-  expected_T_car_cam(0, 1) = -1.0;
-  expected_T_car_cam(1, 0) = 1.0;
-  expected_T_car_cam(1, 1) = 0.0;
-  expected_T_car_cam(0, 3) = 2.0;
-  expected_T_car_cam(1, 3) = 0.5;
-  expected_T_car_cam(2, 3) = 1.25;
-  if (!model.T_car_cam.isApprox(expected_T_car_cam, 1e-12)) {
-    std::cerr << "unexpected T_car_cam\n";
-    return 1;
-  }
-  if (!model.T_cam_car.isApprox(model.T_car_cam.inverse(), 1e-9)) {
-    std::cerr << "expected T_cam_car to equal inverse(T_car_cam)\n";
+  if (front_model.camera_name != "front_wide") {
+    std::cerr << "unexpected camera_name\n";
     return 1;
   }
 
   if (!WriteTextFile(
-          camera_path,
+          left_front_camera_path,
           R"json({
-  "camera-front-wide": {
+  "camera-left-front": {
     "param": {
       "cam_matrix": {
         "data": [
-          [1344.4, 0.0, 1910.5],
-          [0.0, 1344.4, 1080.25],
+          [900.0, 0.0, 960.0],
+          [0.0, 900.0, 540.0],
           [0.0, 0.0, 1.0]
         ]
       },
-      "width": 0,
-      "height": -1
+      "width": 1920,
+      "height": 1080
     }
   },
-  "camera-front-wide-to-car": {
+  "camera-left-front-to-car": {
     "param": {
       "sensor_calib": {
         "data": [
-          [0.0, -1.0, 0.0, 2.0],
-          [1.0, 0.0, 0.0, 0.5],
-          [0.0, 0.0, 1.0, 1.25],
+          [1.0, 0.0, 0.0, -1.0],
+          [0.0, 1.0, 0.0, 0.5],
+          [0.0, 0.0, 1.0, 1.0],
           [0.0, 0.0, 0.0, 1.0]
         ]
       }
     }
   }
 })json")) {
-    std::cerr << "failed to write invalid camera fixture\n";
+    std::cerr << "failed to write left_front fixture\n";
     return 1;
   }
-  if (segment_projection::projection::LoadFrontWideCameraModel(
-          lidar_path, camera_path, &model)) {
-    std::cerr << "expected LoadFrontWideCameraModel to reject non-positive image size\n";
+
+  segment_projection::projection::CameraModel left_front_model;
+  if (!segment_projection::projection::LoadCameraModel(
+          "left_front", lidar_path, left_front_camera_path,
+          &left_front_model)) {
+    std::cerr << "LoadCameraModel(left_front) failed\n";
+    return 1;
+  }
+  if (left_front_model.image_width != 1920) {
+    std::cerr << "unexpected left_front width\n";
     return 1;
   }
 

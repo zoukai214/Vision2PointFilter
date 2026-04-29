@@ -8,7 +8,7 @@
 namespace {
 
 using segment_projection::data_loader::GacPcdPoint;
-using segment_projection::projection::FrontWideCameraModel;
+using segment_projection::projection::CameraModel;
 using segment_projection::projection::ProjectionRenderConfig;
 
 GacPcdPoint MakePoint(float x, float y, float z, int intensity) {
@@ -25,7 +25,8 @@ GacPcdPoint MakePoint(float x, float y, float z, int intensity) {
 }  // namespace
 
 int main() {
-  FrontWideCameraModel camera_model;
+  CameraModel camera_model;
+  camera_model.camera_name = "back";
   camera_model.T_car_lidar = Eigen::Matrix4d::Identity();
   camera_model.T_lidar_car = Eigen::Matrix4d::Identity();
   camera_model.T_car_cam = Eigen::Matrix4d::Identity();
@@ -50,10 +51,10 @@ int main() {
       cv::Mat::zeros(camera_model.image_height, camera_model.image_width, CV_8UC3);
   cv::Mat output_image;
   int valid_count = -1;
-  const bool ok = segment_projection::projection::RenderFrontWideProjection(
+  const bool ok = segment_projection::projection::RenderProjection(
       cloud, camera_model, config, input_image, &output_image, &valid_count);
   if (!ok) {
-    std::cerr << "RenderFrontWideProjection returned false\n";
+    std::cerr << "RenderProjection returned false\n";
     return 1;
   }
   if (valid_count != 1) {
@@ -75,7 +76,7 @@ int main() {
   ProjectionRenderConfig invalid_config = config;
   invalid_config.intensity_color_map = "not-a-real-color-map";
   valid_count = -1;
-  if (segment_projection::projection::RenderFrontWideProjection(
+  if (segment_projection::projection::RenderProjection(
           cloud, camera_model, invalid_config, input_image, &output_image,
           &valid_count)) {
     std::cerr << "expected invalid intensity_color_map to be rejected\n";

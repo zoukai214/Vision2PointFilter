@@ -17,12 +17,21 @@ struct ProjectionRenderConfig {
 
 bool ProjectLidarPointToPixel(
     const segment_projection::data_loader::GacPcdPoint& point,
-    const FrontWideCameraModel& camera_model, cv::Point* pixel);
+    const CameraModel& camera_model, cv::Point* pixel);
 
-bool RenderFrontWideProjection(
+bool RenderProjection(
+    const pcl::PointCloud<segment_projection::data_loader::GacPcdPoint>& cloud,
+    const CameraModel& camera_model,
+    const ProjectionRenderConfig& config, const cv::Mat& input_image,
+    cv::Mat* output_image, int* valid_projected_count);
+
+inline bool RenderFrontWideProjection(
     const pcl::PointCloud<segment_projection::data_loader::GacPcdPoint>& cloud,
     const FrontWideCameraModel& camera_model,
     const ProjectionRenderConfig& config, const cv::Mat& input_image,
-    cv::Mat* output_image, int* valid_projected_count);
+    cv::Mat* output_image, int* valid_projected_count) {
+  return RenderProjection(cloud, camera_model, config, input_image,
+                          output_image, valid_projected_count);
+}
 
 }  // namespace segment_projection::projection

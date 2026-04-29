@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -91,15 +92,27 @@ inline bool LoadInt(const Json::Value& root, const std::vector<std::string>& key
 
 }  // namespace detail
 
-inline bool LoadFrontWideCameraModel(
-    const std::filesystem::path& lidar_top_to_car_path,
-    const std::filesystem::path& camera_front_wide_to_car_path,
-    FrontWideCameraModel* model) {
-  if (!model) {
+inline std::string ToCameraKey(const std::string& camera_name) {
+  std::string key = camera_name;
+  std::replace(key.begin(), key.end(), '_', '-');
+  return key;
+}
+
+inline bool LoadCameraModel(const std::string& camera_name,
+                            const std::filesystem::path& lidar_top_to_car_path,
+                            const std::filesystem::path& camera_to_car_path,
+                            CameraModel* model) {
+  if (!model || camera_name.empty()) {
     return false;
   }
 
-  FrontWideCameraModel loaded_model;
+  CameraModel loaded_model;
+  loaded_model.camera_name = camera_name;
+
+  const std::string camera_key = ToCameraKey(camera_name);
+  const std::string camera_node = "camera-" + camera_key;
+  const std::string extrinsic_node = camera_node + "-to-car";
+
   if (!segment_projection::data_loader::GacClipRootLoader::LoadCalibMatrix(
           lidar_top_to_car_path,
           {"lidar-top-to-car", "param", "sensor_calib", "data"},
@@ -111,8 +124,7 @@ inline bool LoadFrontWideCameraModel(
           loaded_model.T_car_lidar);
 
   if (!segment_projection::data_loader::GacClipRootLoader::LoadCalibMatrix(
-          camera_front_wide_to_car_path,
-          {"camera-front-wide-to-car", "param", "sensor_calib", "data"},
+          camera_to_car_path, {extrinsic_node, "param", "sensor_calib", "data"},
           &loaded_model.T_car_cam)) {
     return false;
   }
@@ -121,34 +133,37 @@ inline bool LoadFrontWideCameraModel(
           loaded_model.T_car_cam);
 
   Json::Value root;
-  if (!detail::LoadJson(camera_front_wide_to_car_path, &root)) {
+  if (!detail::LoadJson(camera_to_car_path, &root)) {
     return false;
   }
-  if (!detail::LoadMatrix3d(root,
-                            {"camera-front-wide", "param", "cam_matrix",
-                             "data"},
+  if (!detail::LoadMatrix3d(root, {camera_node, "param", "cam_matrix", "data"},
                             &loaded_model.K)) {
     return false;
   }
-  if (!detail::LoadInt(root,
-                       {"camera-front-wide", "param", "width"},
+  if (!detail::LoadInt(root, {camera_node, "param", "width"},
                        &loaded_model.image_width)) {
     return false;
   }
-  if (!detail::LoadInt(root,
-                       {"camera-front-wide", "param", "height"},
+  if (!detail::LoadInt(root, {camera_node, "param", "height"},
                        &loaded_model.image_height)) {
     return false;
   }
   if (loaded_model.image_width <= 0 || loaded_model.image_height <= 0) {
-    LOG(ERROR) << "Invalid front-wide image size: "
-               << loaded_model.image_width << "x"
-               << loaded_model.image_height;
+    LOG(ERROR) << "Invalid image size for camera " << camera_name << ": "
+               << loaded_model.image_width << "x" << loaded_model.image_height;
     return false;
   }
 
   *model = loaded_model;
   return true;
+}
+
+inline bool LoadFrontWideCameraModel(
+    const std::filesystem::path& lidar_top_to_car_path,
+    const std::filesystem::path& camera_front_wide_to_car_path,
+    FrontWideCameraModel* model) {
+  return LoadCameraModel("front_wide", lidar_top_to_car_path,
+                         camera_front_wide_to_car_path, model);
 }
 
 }  // namespace segment_projection::projection

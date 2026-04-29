@@ -2,12 +2,14 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <string>
 
 #include <Eigen/Core>
 
 namespace segment_projection::projection {
 
-struct FrontWideCameraModel {
+struct CameraModel {
+  std::string camera_name;
   Eigen::Matrix4d T_lidar_car = Eigen::Matrix4d::Identity();
   Eigen::Matrix4d T_car_lidar = Eigen::Matrix4d::Identity();
   Eigen::Matrix4d T_car_cam = Eigen::Matrix4d::Identity();
@@ -16,6 +18,8 @@ struct FrontWideCameraModel {
   int image_width = 0;
   int image_height = 0;
 };
+
+using FrontWideCameraModel = CameraModel;
 
 struct ImageMatch {
   int64_t timestamp_ms = 0;
