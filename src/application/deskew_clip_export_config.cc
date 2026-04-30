@@ -9,6 +9,29 @@
 namespace segment_projection::application {
 namespace {
 
+bool ParseProjectionImageModel(const std::string& value,
+                               ProjectionImageModel* image_model,
+                               std::string* error) {
+  if (!image_model) {
+    if (error) {
+      *error = "image_model is null";
+    }
+    return false;
+  }
+  if (value == "undistorted") {
+    *image_model = ProjectionImageModel::kUndistorted;
+    return true;
+  }
+  if (value == "raw") {
+    *image_model = ProjectionImageModel::kRaw;
+    return true;
+  }
+  if (error) {
+    *error = "projection.image_model must be 'undistorted' or 'raw'";
+  }
+  return false;
+}
+
 bool ParseProjectionConfig(const YAML::Node& node, ProjectionConfig* projection,
                            std::string* error) {
   if (!projection) {
@@ -33,6 +56,12 @@ bool ParseProjectionConfig(const YAML::Node& node, ProjectionConfig* projection,
   }
   if (node["image_root_subdir"]) {
     projection->image_root_subdir = node["image_root_subdir"].as<std::string>();
+  }
+  if (node["image_model"]) {
+    if (!ParseProjectionImageModel(node["image_model"].as<std::string>(),
+                                   &projection->image_model, error)) {
+      return false;
+    }
   }
   if (node["image_subdir"]) {
     if (error) {

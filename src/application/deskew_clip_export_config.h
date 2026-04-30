@@ -8,9 +8,15 @@
 
 namespace segment_projection::application {
 
+enum class ProjectionImageModel {
+  kUndistorted = 0,
+  kRaw = 1,
+};
+
 struct ProjectionConfig {
   bool enabled = true;
   std::string image_root_subdir = "images_seg_mask2former";
+  ProjectionImageModel image_model = ProjectionImageModel::kUndistorted;
   std::vector<std::string> camera_names;
   std::string output_subdir = "projection";
   double max_time_diff_ms = 100.0;

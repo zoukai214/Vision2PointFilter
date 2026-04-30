@@ -63,6 +63,11 @@ int main() {
     std::cerr << "unexpected image_root_subdir\n";
     return 1;
   }
+  if (cfg.projection.image_model !=
+      segment_projection::application::ProjectionImageModel::kUndistorted) {
+    std::cerr << "default image_model should be undistorted\n";
+    return 1;
+  }
 
   const std::filesystem::path disabled_path = temp_dir / "disabled.yaml";
   {
@@ -78,6 +83,52 @@ int main() {
   }
   if (cfg.projection.enabled || !cfg.projection.camera_names.empty()) {
     std::cerr << "disabled projection should skip strict camera validation\n";
+    return 1;
+  }
+
+  const std::filesystem::path raw_image_model_path = temp_dir / "raw.yaml";
+  {
+    std::ofstream ofs(raw_image_model_path);
+    ofs << "deskew_clip_export:\n";
+    ofs << "  projection:\n";
+    ofs << "    enabled: true\n";
+    ofs << "    image_root_subdir: images_seg_mask2former\n";
+    ofs << "    image_model: raw\n";
+    ofs << "    camera_names: [front_wide]\n";
+    ofs << "    output_subdir: projection\n";
+    ofs << "    max_time_diff_ms: 120.0\n";
+    ofs << "    point_radius_px: 3\n";
+    ofs << "    intensity_color_map: turbo\n";
+  }
+  if (!segment_projection::application::LoadDeskewClipExportConfig(
+          raw_image_model_path, &cfg, &error)) {
+    std::cerr << "raw image_model should load: " << error << "\n";
+    return 1;
+  }
+  if (cfg.projection.image_model !=
+      segment_projection::application::ProjectionImageModel::kRaw) {
+    std::cerr << "raw image_model not parsed\n";
+    return 1;
+  }
+
+  const std::filesystem::path invalid_image_model_path =
+      temp_dir / "invalid_image_model.yaml";
+  {
+    std::ofstream ofs(invalid_image_model_path);
+    ofs << "deskew_clip_export:\n";
+    ofs << "  projection:\n";
+    ofs << "    enabled: true\n";
+    ofs << "    image_root_subdir: images_seg_mask2former\n";
+    ofs << "    image_model: invalid\n";
+    ofs << "    camera_names: [front_wide]\n";
+    ofs << "    output_subdir: projection\n";
+    ofs << "    max_time_diff_ms: 120.0\n";
+    ofs << "    point_radius_px: 3\n";
+    ofs << "    intensity_color_map: turbo\n";
+  }
+  if (segment_projection::application::LoadDeskewClipExportConfig(
+          invalid_image_model_path, &cfg, &error)) {
+    std::cerr << "invalid image_model should fail\n";
     return 1;
   }
 
