@@ -65,16 +65,95 @@ cv::Scalar PseudoColor(double normalized_intensity) {
 
 bool ProjectPoint(const Eigen::Vector3d& point_cam,
                   const CameraModel& camera_model,
+                  ImageProjectionModel image_model,
                   cv::Point* pixel) {
   if (!pixel || !IsFinitePoint(point_cam) || point_cam.z() <= 0.0) {
     return false;
   }
 
-  const double z = point_cam.z();
-  const double u =
-      camera_model.K(0, 0) * (point_cam.x() / z) + camera_model.K(0, 2);
-  const double v =
-      camera_model.K(1, 1) * (point_cam.y() / z) + camera_model.K(1, 2);
+  const double fx = camera_model.K(0, 0);
+  const double fy = camera_model.K(1, 1);
+  const double cx = camera_model.K(0, 2);
+  const double cy = camera_model.K(1, 2);
+  const double x = point_cam.x() / point_cam.z();
+  const double y = point_cam.y() / point_cam.z();
+
+  double x_distorted = x;
+  double y_distorted = y;
+  if (image_model == ImageProjectionModel::kRaw) {
+    constexpr double kEpsilon = 1e-12;
+    if (camera_model.distortion_coeffs.empty()) {
+      return false;
+    }
+    if (camera_model.raw_projection_model == DistortionModel::kFisheye4) {
+      const double r = std::sqrt(x * x + y * y);
+      if (r > kEpsilon) {
+        const double theta = std::atan(r);
+        const double theta2 = theta * theta;
+        const double k1 = camera_model.distortion_coeffs.size() > 0
+                              ? camera_model.distortion_coeffs[0]
+                              : 0.0;
+        const double k2 = camera_model.distortion_coeffs.size() > 1
+                              ? camera_model.distortion_coeffs[1]
+                              : 0.0;
+        const double k3 = camera_model.distortion_coeffs.size() > 2
+                              ? camera_model.distortion_coeffs[2]
+                              : 0.0;
+        const double k4 = camera_model.distortion_coeffs.size() > 3
+                              ? camera_model.distortion_coeffs[3]
+                              : 0.0;
+        const double theta4 = theta2 * theta2;
+        const double theta6 = theta4 * theta2;
+        const double theta8 = theta4 * theta4;
+        const double theta_distorted =
+            theta * (1.0 + k1 * theta2 + k2 * theta4 + k3 * theta6 +
+                     k4 * theta8);
+        const double scale = theta_distorted / r;
+        x_distorted = x * scale;
+        y_distorted = y * scale;
+      }
+    } else {
+      const double r2 = x * x + y * y;
+      const double r4 = r2 * r2;
+      const double r6 = r4 * r2;
+      const double k1 = camera_model.distortion_coeffs.size() > 0
+                            ? camera_model.distortion_coeffs[0]
+                            : 0.0;
+      const double k2 = camera_model.distortion_coeffs.size() > 1
+                            ? camera_model.distortion_coeffs[1]
+                            : 0.0;
+      const double p1 = camera_model.distortion_coeffs.size() > 2
+                            ? camera_model.distortion_coeffs[2]
+                            : 0.0;
+      const double p2 = camera_model.distortion_coeffs.size() > 3
+                            ? camera_model.distortion_coeffs[3]
+                            : 0.0;
+      const double k3 = camera_model.distortion_coeffs.size() > 4
+                            ? camera_model.distortion_coeffs[4]
+                            : 0.0;
+      const double k4 = camera_model.distortion_coeffs.size() > 5
+                            ? camera_model.distortion_coeffs[5]
+                            : 0.0;
+      const double k5 = camera_model.distortion_coeffs.size() > 6
+                            ? camera_model.distortion_coeffs[6]
+                            : 0.0;
+      const double k6 = camera_model.distortion_coeffs.size() > 7
+                            ? camera_model.distortion_coeffs[7]
+                            : 0.0;
+      const double radial_numerator = 1.0 + k1 * r2 + k2 * r4 + k3 * r6;
+      const double radial_denominator = 1.0 + k4 * r2 + k5 * r4 + k6 * r6;
+      if (std::abs(radial_denominator) <= kEpsilon) {
+        return false;
+      }
+      const double radial = radial_numerator / radial_denominator;
+      const double xy = x * y;
+      x_distorted = x * radial + 2.0 * p1 * xy + p2 * (r2 + 2.0 * x * x);
+      y_distorted = y * radial + p1 * (r2 + 2.0 * y * y) + 2.0 * p2 * xy;
+    }
+  }
+
+  const double u = fx * x_distorted + cx;
+  const double v = fy * y_distorted + cy;
   if (!std::isfinite(u) || !std::isfinite(v)) {
     return false;
   }
@@ -92,7 +171,8 @@ bool ProjectPoint(const Eigen::Vector3d& point_cam,
 
 bool ProjectLidarPointToPixel(
     const segment_projection::data_loader::GacPcdPoint& point,
-    const CameraModel& camera_model, cv::Point* pixel) {
+    const CameraModel& camera_model, ImageProjectionModel image_model,
+    cv::Point* pixel) {
   if (!pixel || !std::isfinite(point.x) || !std::isfinite(point.y) ||
       !std::isfinite(point.z)) {
     return false;
@@ -101,12 +181,12 @@ bool ProjectLidarPointToPixel(
   const Eigen::Vector4d point_lidar(point.x, point.y, point.z, 1.0);
   const Eigen::Vector4d point_car = camera_model.T_car_lidar * point_lidar;
   const Eigen::Vector4d point_cam = camera_model.T_cam_car * point_car;
-  return ProjectPoint(point_cam.head<3>(), camera_model, pixel);
+  return ProjectPoint(point_cam.head<3>(), camera_model, image_model, pixel);
 }
 
 bool RenderProjection(
     const pcl::PointCloud<segment_projection::data_loader::GacPcdPoint>& cloud,
-    const CameraModel& camera_model,
+    const CameraModel& camera_model, ImageProjectionModel image_model,
     const ProjectionRenderConfig& config, const cv::Mat& input_image,
     cv::Mat* output_image, int* valid_projected_count) {
   if (!output_image || !valid_projected_count || config.point_radius_px <= 0 ||
@@ -114,6 +194,10 @@ bool RenderProjection(
       camera_model.image_width <= 0 || camera_model.image_height <= 0 ||
       input_image.cols != camera_model.image_width ||
       input_image.rows != camera_model.image_height) {
+    return false;
+  }
+  if (image_model == ImageProjectionModel::kRaw &&
+      camera_model.distortion_coeffs.empty()) {
     return false;
   }
 
@@ -130,7 +214,7 @@ bool RenderProjection(
 
   for (const auto& point : cloud) {
     cv::Point pixel;
-    if (!ProjectLidarPointToPixel(point, camera_model, &pixel)) {
+    if (!ProjectLidarPointToPixel(point, camera_model, image_model, &pixel)) {
       continue;
     }
 

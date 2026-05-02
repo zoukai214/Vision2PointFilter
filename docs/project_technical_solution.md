@@ -104,6 +104,7 @@ p_lidar_deskew = inverse(T_world_lidar_frame) * p_world
 projection:
   enabled: true
   image_root_subdir: images_seg_mask2former
+  image_model: undistorted
   camera_names: [back, front_wide, left_back, left_front, right_back, right_front]
   output_subdir: projection
   max_time_diff_ms: 100.0
@@ -115,6 +116,9 @@ projection:
 
 - `camera_names` 显式定义参与投影和语义融合的相机集合。
 - `camera_names` 的顺序同时定义语义融合顺序和 PNG 输出处理顺序。
+- `image_model` 显式定义输入图像的像素模型：
+  - `undistorted` 表示输入目录中的图像已完成去畸变。
+  - `raw` 表示输入目录中的图像仍为原始带畸变图。
 - 旧字段 `projection.image_subdir` 已废弃，继续使用会直接报错。
 - 不再保留 `camera_names.front() == front_wide` 的旧约束，首相机可由配置决定。
 
@@ -146,6 +150,20 @@ v = fy * y / z + cy
 
 投影阶段会过滤相机后方点、非法点和图像范围外点，只保留有效投影结果。
 
+当 `image_model=raw` 时，像素投影不再使用简单针孔模型，而是基于相机标定中的畸变参数决定原图投影路径：
+
+- 若畸变系数的有效非零项不超过 4 个，则按 4 参数 fisheye 模型投影。
+- 若有效非零项超过 4 个，则按 8 参数畸变模型投影。
+
+当 `image_model=undistorted` 时，继续使用针孔投影路径。
+
+因此，当前系统可以同时兼容：
+
+- 去畸变语义图输入
+- 原始带畸变语义图输入
+
+且两者都共用同一套多相机时间匹配与语义回填框架。
+
 ### 4.5 语义回填策略
 
 当前语义回填采用“按配置顺序命中首个有效标签”的简单融合规则：
@@ -165,6 +183,22 @@ v = fy * y / z + cy
 
 有效投影点根据 LiDAR 强度值进行伪彩色渲染，并叠加到对应相机语义图上。
 
+当前输出链路进一步区分了“输入图像类型”和“最终 PNG 期望形态”：
+
+- 当 `image_model=undistorted` 时：
+  - 直接在去畸变图坐标系中完成渲染。
+  - 最终输出 PNG 与当前渲染结果一致。
+- 当 `image_model=raw` 时：
+  - 仍先在原图坐标系中完成点投影与语义图叠加。
+  - 语义取值逻辑保持不变，不额外切换为去畸变图坐标。
+  - 仅在最终保存 PNG 前，对“底图 + 投影点”的渲染结果图执行一次去畸变。
+  - 最终输出的是去畸变后的投影图。
+
+这样设计的目的在于：
+
+- 保持原有语义回填与原图投影逻辑不变，减少主流程侵入。
+- 使 raw 输入模式下导出的投影图仍然方便人工按去畸变视角检查几何对齐效果。
+
 输出协议如下：
 
 - 语义点云输出：
@@ -179,6 +213,28 @@ v = fy * y / z + cy
 - 保留点云反射强度信息，便于观察路面和高反物体。
 - 语义融合与可视化共用同一组时间匹配和投影逻辑。
 - 输出结果直观，便于人工快速判断标定和同步质量。
+- raw 输入模式下仍能输出便于检查的去畸变投影图，同时不破坏原有语义回填路径。
+
+### 4.7 原图输入去畸变输出实现补充
+
+为支持 `raw` 输入但输出去畸变投影图，投影模块新增了独立的渲染结果图去畸变能力。
+
+实现原则如下：
+
+1. `RenderProjection(...)` 只负责在输入图像坐标系中绘制投影点。
+2. 若 `image_model=raw`，则在应用层导出阶段调用渲染结果图去畸变函数。
+3. 若 `image_model=undistorted`，则保持原有直接写盘逻辑。
+
+图像去畸变分支同样按相机畸变模型区分：
+
+- `kFisheye4` 使用 fisheye 去畸变路径。
+- `kDistorted8` 使用普通畸变模型去畸变路径。
+
+同时在数值稳定性上增加了保护：
+
+- 当 8 参数畸变模型的径向分母接近 0 时，当前帧导出会直接报错退出，避免输出错误重采样结果。
+
+该实现将“语义与投影几何逻辑”和“最终可视化导出形态”解耦，适合离线质检场景。
 
 ## 5. 方案优势
 
@@ -188,8 +244,60 @@ v = fy * y / z + cy
 - 位姿表达稳定：平移线性插值结合四元数旋转插值，适合车辆连续运动场景。
 - 坐标变换完整：以全局坐标作为中间表达，实现帧内不同采样时刻点的统一。
 - 多相机扩展明确：相机集合、融合顺序和输出目录全部由配置显式控制。
+- 原图兼容性更强：同一套流程可以直接接收带畸变语义图输入。
 - 验证方式直观：投影图可以直接暴露外参、内参和时间同步问题。
+- 导出结果更适合人工检查：raw 输入模式下也能输出去畸变投影视图。
 - 扩展基础良好：后续可继续扩展更复杂的语义融合和点云过滤。
+
+## 7. 测试验证
+
+本次新增原图输入去畸变输出能力后，已完成两类验证。
+
+### 7.1 单元测试验证
+
+已验证以下测试目标通过：
+
+- `camera_calibration_test`
+- `point_cloud_projector_test`
+- `semantic_point_labeler_test`
+- `rendered_image_undistorter_test`
+
+验证点覆盖：
+
+- `raw` / `undistorted` 两类投影模型路径
+- 4 参数 fisheye 与 8 参数畸变模型路径
+- raw 渲染阶段保持原图像素坐标
+- 渲染结果图去畸变辅助接口的输入校验与基本输出行为
+
+### 7.2 真实数据验证
+
+使用真实数据集：
+
+- `/workspace/GACRT026_1758521322`
+
+测试配置：
+
+- `image_root_subdir: images_seg_mask2former`
+- `image_model: raw`
+- `camera_names: [back, front_wide, left_back, left_front, right_back, right_front]`
+
+输出目录：
+
+- `/workspace/GACRT026_1758521322/output_codex_raw_projection_undistort_20260502`
+
+真实数据验证结果：
+
+- `exported_frames=201`
+- `skipped_frames=0`
+- `deskew_pcd` 导出 201 个 PCD
+- 六路相机各导出 201 张投影 PNG
+
+抽查输出尺寸：
+
+- `back` 相机输出示例：`1280 x 1920`
+- `front_wide` 相机输出示例：`2160 x 3840`
+
+说明 raw 输入模式下，多相机投影与最终去畸变 PNG 导出链路已经在真实数据上完成闭环验证。
 
 ## 6. 标定与全局坐标系实现细节
 

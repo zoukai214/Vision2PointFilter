@@ -21,6 +21,7 @@
 #include "projection/front_wide_projection_types.h"
 #include "projection/image_index.h"
 #include "projection/point_cloud_projector.h"
+#include "projection/rendered_image_undistorter.h"
 #include "projection/semantic_label_mapping.h"
 #include "projection/semantic_point_labeler.h"
 
@@ -38,6 +39,8 @@ using ProjectionRenderConfig =
     segment_projection::projection::ProjectionRenderConfig;
 using SemanticLookupContext =
     segment_projection::projection::SemanticLookupContext;
+using ImageProjectionModel =
+    segment_projection::projection::ImageProjectionModel;
 
 struct InterpolatedPose {
   Eigen::Vector3d utm_m = Eigen::Vector3d::Zero();
@@ -53,6 +56,7 @@ struct CameraProjectionContext {
 
 struct ProjectionContext {
   std::vector<CameraProjectionContext> camera_contexts;
+  ImageProjectionModel image_model = ImageProjectionModel::kUndistorted;
   ProjectionRenderConfig render_config;
   segment_projection::projection::SemanticLabelMapping semantic_mapping;
   double max_time_diff_ms = 100.0;
@@ -197,6 +201,11 @@ int main(int argc, char** argv) {
   std::unique_ptr<ProjectionContext> projection;
   if (cfg.projection.enabled) {
     projection = std::make_unique<ProjectionContext>();
+    projection->image_model =
+        (cfg.projection.image_model ==
+         segment_projection::application::ProjectionImageModel::kRaw)
+            ? ImageProjectionModel::kRaw
+            : ImageProjectionModel::kUndistorted;
     projection->camera_contexts.reserve(cfg.projection.camera_names.size());
     for (const std::string& camera_name : cfg.projection.camera_names) {
       CameraProjectionContext camera_context;
@@ -432,6 +441,7 @@ int main(int argc, char** argv) {
       for (std::size_t i = 0; i < projection->camera_contexts.size(); ++i) {
         SemanticLookupContext lookup_context;
         lookup_context.camera_model = &projection->camera_contexts[i].camera_model;
+        lookup_context.image_model = projection->image_model;
         lookup_context.semantic_image = &semantic_images[i];
         lookup_context.mapping = &projection->semantic_mapping;
         lookup_contexts.push_back(lookup_context);
@@ -481,16 +491,31 @@ int main(int argc, char** argv) {
         int valid_projected_count = 0;
         if (!segment_projection::projection::RenderProjection(
                 deskewed_cloud, camera_context.camera_model,
-                projection->render_config, semantic_images[i], &projected_image,
+                projection->image_model, projection->render_config,
+                semantic_images[i], &projected_image,
                 &valid_projected_count)) {
           LOG(ERROR) << "Failed to render projection for frame: " << pcd_path
                      << ", camera_name=" << camera_context.camera_name;
           return EXIT_FAILURE;
         }
 
+        cv::Mat output_image;
+        if (projection->image_model == ImageProjectionModel::kRaw) {
+          if (!segment_projection::projection::UndistortRenderedImage(
+                  projected_image, camera_context.camera_model,
+                  &output_image)) {
+            LOG(ERROR) << "Failed to undistort rendered projection for frame: "
+                       << pcd_path << ", camera_name="
+                       << camera_context.camera_name;
+            return EXIT_FAILURE;
+          }
+        } else {
+          output_image = projected_image;
+        }
+
         const std::filesystem::path projection_output_path =
             camera_context.output_dir / output_name;
-        if (!cv::imwrite(projection_output_path.string(), projected_image)) {
+        if (!cv::imwrite(projection_output_path.string(), output_image)) {
           LOG(ERROR) << "Failed to save projection PNG: "
                      << projection_output_path
                      << ", camera_name=" << camera_context.camera_name;

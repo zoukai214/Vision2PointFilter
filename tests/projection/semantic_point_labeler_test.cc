@@ -51,7 +51,9 @@ int main() {
 
   int semantic_label = -99;
   if (!segment_projection::projection::LookupSemanticLabelForPoint(
-          MakePoint(0.0f, 0.0f, 2.0f), camera_model, image, mapping,
+          MakePoint(0.0f, 0.0f, 2.0f), camera_model,
+          segment_projection::projection::ImageProjectionModel::kUndistorted,
+          image, mapping,
           &semantic_label) ||
       semantic_label != 13) {
     std::cerr << "expected projected point to resolve to label 13\n";
@@ -59,7 +61,9 @@ int main() {
   }
 
   if (!segment_projection::projection::LookupSemanticLabelForPoint(
-          MakePoint(0.2f, 0.0f, 2.0f), camera_model, image, mapping,
+          MakePoint(0.2f, 0.0f, 2.0f), camera_model,
+          segment_projection::projection::ImageProjectionModel::kUndistorted,
+          image, mapping,
           &semantic_label) ||
       semantic_label != -1) {
     std::cerr << "unknown gray value should map to -1\n";
@@ -67,7 +71,9 @@ int main() {
   }
 
   if (!segment_projection::projection::LookupSemanticLabelForPoint(
-          MakePoint(100.0f, 0.0f, 1.0f), camera_model, image, mapping,
+          MakePoint(100.0f, 0.0f, 1.0f), camera_model,
+          segment_projection::projection::ImageProjectionModel::kUndistorted,
+          image, mapping,
           &semantic_label) ||
       semantic_label != -1) {
     std::cerr << "out-of-image point should map to -1\n";
@@ -82,8 +88,12 @@ int main() {
   second_image.at<std::uint8_t>(5, 5) = 51;
   const std::vector<segment_projection::projection::SemanticLookupContext>
       lookup_contexts = {
-          {&camera_model, &first_image, &mapping},
-          {&fallback_camera_model, &second_image, &mapping},
+          {&camera_model,
+           segment_projection::projection::ImageProjectionModel::kUndistorted,
+           &first_image, &mapping},
+          {&fallback_camera_model,
+           segment_projection::projection::ImageProjectionModel::kUndistorted,
+           &second_image, &mapping},
       };
   if (!segment_projection::projection::LookupSemanticLabelForPointMultiCamera(
           MakePoint(0.0f, 0.0f, 2.0f), lookup_contexts, &semantic_label) ||

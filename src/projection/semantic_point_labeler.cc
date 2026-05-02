@@ -6,8 +6,9 @@ namespace segment_projection::projection {
 
 bool LookupSemanticLabelForPoint(
     const segment_projection::data_loader::GacPcdPoint& point,
-    const CameraModel& camera_model, const cv::Mat& semantic_image,
-    const SemanticLabelMapping& mapping, int* semantic_label) {
+    const CameraModel& camera_model, ImageProjectionModel image_model,
+    const cv::Mat& semantic_image, const SemanticLabelMapping& mapping,
+    int* semantic_label) {
   if (!semantic_label || semantic_image.empty() ||
       semantic_image.type() != CV_8UC1) {
     return false;
@@ -16,7 +17,7 @@ bool LookupSemanticLabelForPoint(
   *semantic_label = -1;
 
   cv::Point pixel;
-  if (!ProjectLidarPointToPixel(point, camera_model, &pixel)) {
+  if (!ProjectLidarPointToPixel(point, camera_model, image_model, &pixel)) {
     return true;
   }
   if (pixel.x < 0 || pixel.x >= semantic_image.cols || pixel.y < 0 ||
@@ -49,9 +50,9 @@ bool LookupSemanticLabelForPointMultiCamera(
     }
 
     int candidate_label = -1;
-    if (!LookupSemanticLabelForPoint(point, *context.camera_model,
-                                     *context.semantic_image, *context.mapping,
-                                     &candidate_label)) {
+    if (!LookupSemanticLabelForPoint(
+            point, *context.camera_model, context.image_model,
+            *context.semantic_image, *context.mapping, &candidate_label)) {
       return false;
     }
     if (candidate_label >= 0) {

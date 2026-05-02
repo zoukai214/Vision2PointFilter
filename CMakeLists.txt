@@ -73,6 +73,7 @@ set(segment_projection_projection_sources
   src/projection/camera_calibration.cc
   src/projection/image_index.cc
   src/projection/point_cloud_projector.cc
+  src/projection/rendered_image_undistorter.cc
   src/projection/semantic_label_mapping.cc
   src/projection/semantic_point_labeler.cc
 )
@@ -202,6 +203,18 @@ if(EXISTS "${PROJECT_SOURCE_DIR}/tests/projection/semantic_point_labeler_test.cc
       glog::glog
   )
   add_test(NAME semantic_point_labeler_test COMMAND semantic_point_labeler_test)
+endif()
+
+if(EXISTS "${PROJECT_SOURCE_DIR}/tests/projection/rendered_image_undistorter_test.cc")
+  add_executable(rendered_image_undistorter_test
+    tests/projection/rendered_image_undistorter_test.cc
+  )
+  target_link_libraries(rendered_image_undistorter_test
+    PRIVATE
+      segment_projection_projection
+      glog::glog
+  )
+  add_test(NAME rendered_image_undistorter_test COMMAND rendered_image_undistorter_test)
 endif()
 
 if(EXISTS "${PROJECT_SOURCE_DIR}/tests/application/deskew_clip_export_config_test.cc")

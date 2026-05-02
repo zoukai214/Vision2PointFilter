@@ -64,8 +64,8 @@ int main() {
       },
       "width": 3840,
       "height": 2160,
-      "distortion": {
-        "data": [0.1, -0.2, 0.0, 0.0, 0.0]
+      "cam_dist": {
+        "data": [0.1, -0.2, 0.01, 0.001, 0.0, 0.0, 0.0, 0.0]
       }
     }
   },
@@ -105,6 +105,23 @@ int main() {
   }
   if (front_model.camera_name != "front_wide") {
     std::cerr << "unexpected camera_name\n";
+    return 1;
+  }
+  if (front_model.distortion_coeffs.size() != 8) {
+    std::cerr << "expected front_wide cam_dist to be loaded\n";
+    return 1;
+  }
+  if (front_model.raw_projection_model !=
+      segment_projection::projection::DistortionModel::kFisheye4) {
+    std::cerr << "expected <= 4 non-zero cam_dist coeffs to map to fisheye4\n";
+    return 1;
+  }
+  if (std::abs(front_model.K(0, 0) - 1344.4) > 1e-9) {
+    std::cerr << "camera-front-wide intrinsics should come from raw camera node\n";
+    return 1;
+  }
+  if (front_model.image_width != 3840 || front_model.image_height != 2160) {
+    std::cerr << "unexpected front_wide image size\n";
     return 1;
   }
 
@@ -150,6 +167,59 @@ int main() {
   }
   if (left_front_model.image_width != 1920) {
     std::cerr << "unexpected left_front width\n";
+    return 1;
+  }
+  if (!left_front_model.distortion_coeffs.empty()) {
+    std::cerr << "missing cam_dist should keep distortion coeffs empty\n";
+    return 1;
+  }
+  const auto distorted8_camera_path =
+      temp_dir / "calib_camera_back_to_car.json";
+  if (!WriteTextFile(
+          distorted8_camera_path,
+          R"json({
+  "camera-back": {
+    "param": {
+      "cam_matrix": {
+        "data": [
+          [1000.0, 0.0, 960.0],
+          [0.0, 1000.0, 540.0],
+          [0.0, 0.0, 1.0]
+        ]
+      },
+      "width": 1920,
+      "height": 1080,
+      "cam_dist": {
+        "data": [0.1, -0.2, 0.01, 0.001, 0.2, 0.3, 0.0, 0.0]
+      }
+    }
+  },
+  "camera-back-to-car": {
+    "param": {
+      "sensor_calib": {
+        "data": [
+          [1.0, 0.0, 0.0, 0.0],
+          [0.0, 1.0, 0.0, 0.0],
+          [0.0, 0.0, 1.0, 1.0],
+          [0.0, 0.0, 0.0, 1.0]
+        ]
+      }
+    }
+  }
+})json")) {
+    std::cerr << "failed to write distorted8 fixture\n";
+    return 1;
+  }
+
+  segment_projection::projection::CameraModel back_model;
+  if (!segment_projection::projection::LoadCameraModel(
+          "back", lidar_path, distorted8_camera_path, &back_model)) {
+    std::cerr << "LoadCameraModel(back) failed\n";
+    return 1;
+  }
+  if (back_model.raw_projection_model !=
+      segment_projection::projection::DistortionModel::kDistorted8) {
+    std::cerr << "expected > 4 non-zero cam_dist coeffs to map to distorted8\n";
     return 1;
   }
 

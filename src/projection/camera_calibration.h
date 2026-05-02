@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -90,6 +91,48 @@ inline bool LoadInt(const Json::Value& root, const std::vector<std::string>& key
   return true;
 }
 
+inline bool TryLoadDoubleArray(const Json::Value& root,
+                               const std::vector<std::string>& keys,
+                               std::vector<double>* values) {
+  if (!values) {
+    return false;
+  }
+  const Json::Value* node = FindNode(root, keys);
+  if (!node) {
+    values->clear();
+    return true;
+  }
+  if (!node->isArray()) {
+    LOG(ERROR) << "Expected numeric array at requested JSON path";
+    return false;
+  }
+
+  std::vector<double> loaded_values;
+  loaded_values.reserve(node->size());
+  for (Json::ArrayIndex i = 0; i < node->size(); ++i) {
+    if (!(*node)[i].isNumeric()) {
+      LOG(ERROR) << "Expected numeric distortion coefficient at index " << i;
+      return false;
+    }
+    loaded_values.push_back((*node)[i].asDouble());
+  }
+  *values = std::move(loaded_values);
+  return true;
+}
+
+inline DistortionModel InferDistortionModel(
+    const std::vector<double>& distortion_coeffs) {
+  constexpr double kEpsilon = 1e-12;
+  int non_zero_count = 0;
+  for (double value : distortion_coeffs) {
+    if (std::abs(value) > kEpsilon) {
+      ++non_zero_count;
+    }
+  }
+  return (non_zero_count <= 4) ? DistortionModel::kFisheye4
+                               : DistortionModel::kDistorted8;
+}
+
 }  // namespace detail
 
 inline std::string ToCameraKey(const std::string& camera_name) {
@@ -140,6 +183,12 @@ inline bool LoadCameraModel(const std::string& camera_name,
                             &loaded_model.K)) {
     return false;
   }
+  if (!detail::TryLoadDoubleArray(root, {camera_node, "param", "cam_dist", "data"},
+                                  &loaded_model.distortion_coeffs)) {
+    return false;
+  }
+  loaded_model.raw_projection_model =
+      detail::InferDistortionModel(loaded_model.distortion_coeffs);
   if (!detail::LoadInt(root, {camera_node, "param", "width"},
                        &loaded_model.image_width)) {
     return false;
