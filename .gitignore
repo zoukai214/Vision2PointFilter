@@ -12,7 +12,7 @@ compile_commands.json
 .idea/
 .vscode/
 .worktrees/
-
+.codex/
 # Local environment and secrets
 .env
 .env.*

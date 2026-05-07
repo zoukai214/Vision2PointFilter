@@ -1,3 +1,5 @@
+#define PCL_NO_PRECOMPILE
+
 #include <filesystem>
 #include <limits>
 #include <memory>
@@ -20,6 +22,7 @@
 #include "projection/camera_calibration.h"
 #include "projection/front_wide_projection_types.h"
 #include "projection/image_index.h"
+#include "projection/point_cloud_classification.h"
 #include "projection/point_cloud_projector.h"
 #include "projection/rendered_image_undistorter.h"
 #include "projection/semantic_label_mapping.h"
@@ -451,6 +454,7 @@ int main(int argc, char** argv) {
     pcl::PointCloud<SemanticLabeledPoint> labeled_cloud;
     labeled_cloud.reserve(deskewed_cloud.size());
     for (const auto& point : deskewed_cloud) {
+      int contiguous_id = -1;
       SemanticLabeledPoint labeled_point;
       labeled_point.x = point.x;
       labeled_point.y = point.y;
@@ -458,15 +462,18 @@ int main(int argc, char** argv) {
       labeled_point.intensity = point.intensity;
       labeled_point.ring = point.ring;
       labeled_point.point_time_offset = point.point_time_offset;
-      labeled_point.semantic_label = -1;
+      labeled_point.classification = -1;
 
       if (projection &&
           !segment_projection::projection::LookupSemanticLabelForPointMultiCamera(
-              point, lookup_contexts, &labeled_point.semantic_label)) {
+              point, lookup_contexts, &contiguous_id)) {
         LOG(ERROR) << "Failed to resolve semantic label for frame: "
                    << pcd_path;
         return EXIT_FAILURE;
       }
+      labeled_point.classification =
+          segment_projection::projection::MapContiguousIdToClassification(
+              contiguous_id);
 
       labeled_cloud.push_back(labeled_point);
     }

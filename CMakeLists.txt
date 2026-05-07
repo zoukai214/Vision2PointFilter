@@ -72,6 +72,7 @@ target_link_libraries(segment_projection_pose_parse
 set(segment_projection_projection_sources
   src/projection/camera_calibration.cc
   src/projection/image_index.cc
+  src/projection/point_cloud_classification.cc
   src/projection/point_cloud_projector.cc
   src/projection/rendered_image_undistorter.cc
   src/projection/semantic_label_mapping.cc
@@ -166,6 +167,18 @@ if(EXISTS "${PROJECT_SOURCE_DIR}/tests/projection/image_index_test.cc")
   add_test(NAME image_index_test COMMAND image_index_test)
 endif()
 
+if(EXISTS "${PROJECT_SOURCE_DIR}/tests/projection/point_cloud_classification_test.cc")
+  add_executable(point_cloud_classification_test
+    tests/projection/point_cloud_classification_test.cc
+  )
+  target_link_libraries(point_cloud_classification_test
+    PRIVATE
+      segment_projection_projection
+      glog::glog
+  )
+  add_test(NAME point_cloud_classification_test COMMAND point_cloud_classification_test)
+endif()
+
 if(EXISTS "${PROJECT_SOURCE_DIR}/tests/projection/point_cloud_projector_test.cc")
   add_executable(point_cloud_projector_test
     tests/projection/point_cloud_projector_test.cc
@@ -215,6 +228,17 @@ if(EXISTS "${PROJECT_SOURCE_DIR}/tests/projection/rendered_image_undistorter_tes
       glog::glog
   )
   add_test(NAME rendered_image_undistorter_test COMMAND rendered_image_undistorter_test)
+endif()
+
+if(EXISTS "${PROJECT_SOURCE_DIR}/tests/data_loader/semantic_labeled_point_test.cc")
+  add_executable(semantic_labeled_point_test
+    tests/data_loader/semantic_labeled_point_test.cc
+  )
+  target_link_libraries(semantic_labeled_point_test
+    PRIVATE
+      pcl_common
+  )
+  add_test(NAME semantic_labeled_point_test COMMAND semantic_labeled_point_test)
 endif()
 
 if(EXISTS "${PROJECT_SOURCE_DIR}/tests/application/deskew_clip_export_config_test.cc")

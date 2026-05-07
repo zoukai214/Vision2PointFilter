@@ -1,0 +1,116 @@
+#include "projection/point_cloud_classification.h"
+
+#include <cstdlib>
+#include <iostream>
+
+namespace {
+
+int ExpectedClassification(int contiguous_id) {
+  switch (contiguous_id) {
+    case 0:
+    case 1:
+    case 19:
+    case 20:
+    case 21:
+    case 22:
+    case 52:
+    case 53:
+    case 54:
+    case 55:
+    case 56:
+    case 57:
+    case 58:
+    case 59:
+    case 60:
+    case 61:
+    case 62:
+    case 63:
+    case 64:
+      return 2;
+    case 2:
+    case 3:
+    case 4:
+    case 5:
+    case 6:
+    case 16:
+    case 17:
+    case 18:
+    case 25:
+    case 27:
+    case 30:
+    case 31:
+    case 32:
+    case 33:
+    case 34:
+    case 35:
+    case 36:
+    case 37:
+    case 38:
+    case 39:
+    case 40:
+    case 41:
+    case 42:
+    case 43:
+    case 44:
+    case 45:
+    case 46:
+    case 47:
+    case 48:
+    case 49:
+    case 50:
+    case 51:
+      return 0;
+    case 7:
+    case 8:
+    case 9:
+    case 10:
+    case 11:
+    case 12:
+    case 13:
+    case 14:
+    case 15:
+    case 23:
+    case 24:
+    case 26:
+    case 28:
+    case 29:
+      return 1;
+    default:
+      return -1;
+  }
+}
+
+void ExpectClassification(int contiguous_id, int expected_class) {
+  const int actual_class =
+      segment_projection::projection::MapContiguousIdToClassification(
+          contiguous_id);
+  if (actual_class != expected_class) {
+    std::cerr << "contiguous_id " << contiguous_id << " expected "
+              << expected_class << " got " << actual_class << "\n";
+    std::exit(1);
+  }
+}
+
+}  // namespace
+
+int main() {
+  ExpectClassification(-2, -1);
+  ExpectClassification(-1, -1);
+  ExpectClassification(0, 2);
+  ExpectClassification(1, 2);
+  ExpectClassification(2, 0);
+  ExpectClassification(7, 1);
+  ExpectClassification(29, 1);
+  ExpectClassification(30, 0);
+  ExpectClassification(51, 0);
+  ExpectClassification(52, 2);
+  ExpectClassification(64, 2);
+  ExpectClassification(65, -1);
+  ExpectClassification(100, -1);
+
+  for (int contiguous_id = 0; contiguous_id <= 64; ++contiguous_id) {
+    ExpectClassification(contiguous_id, ExpectedClassification(contiguous_id));
+  }
+
+  return 0;
+}
